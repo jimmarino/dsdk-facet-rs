@@ -10,5 +10,6 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+#![allow(clippy::unwrap_used)]
 #[cfg(test)]
 mod mem;

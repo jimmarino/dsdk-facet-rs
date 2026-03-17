@@ -10,6 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+#![allow(clippy::unwrap_used)]
 use super::mocks::{PassthroughCredentialsResolver, TestJwtVerifier, TokenMatchingJwtVerifier};
 use aws_config::Region;
 use aws_credential_types::Credentials;

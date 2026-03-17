@@ -13,6 +13,7 @@
 //! These tests verify the renewal loop behavior without requiring full container setup,
 //! using WireMock to simulate Vault and OAuth2 endpoints.
 
+#![allow(clippy::unwrap_used)]
 #[allow(unused)]
 mod common;
 

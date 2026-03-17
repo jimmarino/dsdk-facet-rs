@@ -18,6 +18,7 @@
 //! Note: Pingora does NOT send internal error context strings to clients - they
 //! are only logged. This is verified per https://github.com/cloudflare/pingora/issues/457
 
+#![allow(clippy::unwrap_used)]
 mod common;
 
 use crate::common::{

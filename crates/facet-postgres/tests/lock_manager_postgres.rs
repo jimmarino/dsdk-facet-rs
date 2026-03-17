@@ -10,6 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+#![allow(clippy::unwrap_used)]
 use chrono::{TimeDelta, Utc};
 use dsdk_facet_core::lock::LockError::{LockAlreadyHeld, LockNotFound};
 use dsdk_facet_core::lock::{LockManager, UnlockOps};

@@ -13,6 +13,7 @@
 // Allow dead code in this module since test utilities are shared across multiple test files
 // and each test binary is compiled separately
 #![allow(dead_code)]
+#![allow(clippy::unwrap_used)]
 
 mod mocks;
 mod proxy_s3;

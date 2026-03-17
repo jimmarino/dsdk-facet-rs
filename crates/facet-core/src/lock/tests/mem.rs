@@ -10,6 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+#![allow(clippy::unwrap_used)]
 use crate::lock::{LockError, LockManager, MemoryLockManager, UnlockOps};
 use crate::util::clock::{Clock, MockClock};
 use chrono::{TimeDelta, Utc};

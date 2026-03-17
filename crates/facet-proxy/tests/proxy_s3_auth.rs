@@ -10,6 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+#![allow(clippy::unwrap_used)]
 mod common;
 
 use crate::common::{ProxyConfig, add_auth_rule, create_test_client, get_available_port, launch_s3proxy};
