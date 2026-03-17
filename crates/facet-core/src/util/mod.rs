@@ -10,6 +10,8 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+#![allow(clippy::unwrap_used)]
+
 pub mod backoff;
 pub mod clock;
 pub mod encryption;

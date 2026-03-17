@@ -10,6 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+#![allow(clippy::unwrap_used)]
 use dsdk_facet_core::auth::{AuthorizationError, AuthorizationEvaluator, Operation, Rule, RuleStore};
 use dsdk_facet_core::context::ParticipantContext;
 use dsdk_facet_postgres::auth::PostgresAuthorizationEvaluator;

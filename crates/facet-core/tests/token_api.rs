@@ -9,11 +9,11 @@
 //  Contributors:
 //       Metaform Systems, Inc. - initial API and implementation
 //
-
+#![allow(clippy::unwrap_used)]
 use chrono::{TimeDelta, Utc};
 use dsdk_facet_core::context::ParticipantContext;
 use dsdk_facet_core::jwt::jwtutils::{
-    StaticSigningKeyResolver, StaticVerificationKeyResolver, generate_ed25519_keypair_pem,
+    generate_ed25519_keypair_pem, StaticSigningKeyResolver, StaticVerificationKeyResolver,
 };
 use dsdk_facet_core::jwt::{JwtVerifier, LocalJwtGenerator, LocalJwtVerifier};
 use dsdk_facet_core::token::oauth::OAuth2TokenClient;

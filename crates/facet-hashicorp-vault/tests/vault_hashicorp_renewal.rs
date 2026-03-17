@@ -13,6 +13,7 @@
 //! These tests verify the renewal loop behavior without requiring full container setup,
 //! using WireMock to simulate Vault and OAuth2 endpoints.
 
+#![allow(clippy::unwrap_used)]
 #[allow(unused)]
 mod common;
 
@@ -24,9 +25,9 @@ use dsdk_facet_hashicorp_vault::renewal::TokenRenewer;
 use dsdk_facet_hashicorp_vault::state::VaultClientState;
 use dsdk_facet_hashicorp_vault::{ErrorCallback, HashicorpVaultConfig, VaultAuthConfig};
 use reqwest::Client;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use tokio::sync::{RwLock, watch};
+use std::sync::Arc;
+use tokio::sync::{watch, RwLock};
 use tokio::time::Duration;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};

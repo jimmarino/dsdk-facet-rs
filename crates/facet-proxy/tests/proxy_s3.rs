@@ -10,11 +10,12 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+#![allow(clippy::unwrap_used)]
 mod common;
 
 use common::{
-    PassthroughCredentialsResolver, ProxyConfig, TestJwtVerifier, create_test_client, get_available_port,
-    launch_s3proxy,
+    create_test_client, get_available_port, launch_s3proxy, PassthroughCredentialsResolver, ProxyConfig,
+    TestJwtVerifier,
 };
 
 use dsdk_facet_core::auth::{AuthorizationEvaluator, Operation, Rule, RuleStore};
@@ -22,7 +23,7 @@ use dsdk_facet_core::context::{ParticipantContext, StaticParticipantContextResol
 use dsdk_facet_postgres::auth::PostgresAuthorizationEvaluator;
 use dsdk_facet_proxy::s3::{DefaultS3OperationParser, S3Credentials, UpstreamStyle};
 use dsdk_facet_testcontainers::{
-    minio::{MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MinioInstance, TEST_BUCKET},
+    minio::{MinioInstance, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, TEST_BUCKET},
     postgres::setup_postgres_container,
 };
 use std::sync::Arc;

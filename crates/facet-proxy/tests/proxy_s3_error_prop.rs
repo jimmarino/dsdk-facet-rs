@@ -18,17 +18,18 @@
 //! Note: Pingora does NOT send internal error context strings to clients - they
 //! are only logged. This is verified per https://github.com/cloudflare/pingora/issues/457
 
+#![allow(clippy::unwrap_used)]
 mod common;
 
 use crate::common::{
-    DefaultOperationParser, DetailedFailureJwtVerifier, FailingAuthEvaluator, FailingCredentialResolver,
-    FailingOperationParser, PassthroughCredentialsResolver, PermissiveAuthEvaluator, ProxyConfig,
-    SuspiciousCredentialResolver, TestJwtVerifier, get_available_port, launch_s3proxy,
+    get_available_port, launch_s3proxy, DefaultOperationParser, DetailedFailureJwtVerifier,
+    FailingAuthEvaluator, FailingCredentialResolver, FailingOperationParser, PassthroughCredentialsResolver,
+    PermissiveAuthEvaluator, ProxyConfig, SuspiciousCredentialResolver, TestJwtVerifier,
 };
 
 use aws_config::BehaviorVersion;
-use aws_sdk_s3::Client;
 use aws_sdk_s3::config::{Credentials, Region};
+use aws_sdk_s3::Client;
 use dsdk_facet_proxy::s3::S3Credentials;
 use dsdk_facet_testcontainers::minio::{TEST_BUCKET, TEST_KEY};
 use std::sync::Arc;
