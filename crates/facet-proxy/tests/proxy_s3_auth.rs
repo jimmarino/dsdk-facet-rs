@@ -13,14 +13,14 @@
 #![allow(clippy::unwrap_used)]
 mod common;
 
-use crate::common::{add_auth_rule, create_test_client, get_available_port, launch_s3proxy, ProxyConfig};
+use crate::common::{ProxyConfig, add_auth_rule, create_test_client, get_available_port, launch_s3proxy};
 
 use aws_config::BehaviorVersion;
+use aws_sdk_s3::Client;
 use aws_sdk_s3::config::{Credentials, Region};
 use aws_sdk_s3::primitives::ByteStream;
-use aws_sdk_s3::Client;
 use dsdk_facet_core::auth::MemoryAuthorizationEvaluator;
-use dsdk_facet_testcontainers::minio::{MinioInstance, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, TEST_BUCKET};
+use dsdk_facet_testcontainers::minio::{MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MinioInstance, TEST_BUCKET};
 use std::sync::Arc;
 
 // ==================== Object GET Operations - Allow ====================

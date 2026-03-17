@@ -23,8 +23,8 @@ use dsdk_facet_proxy::s3::{
     DefaultS3OperationParser, S3CredentialResolver, S3Credentials, S3OperationParser, S3Proxy, UpstreamStyle,
 };
 use dsdk_facet_testcontainers::minio::{MINIO_ACCESS_KEY, MINIO_SECRET_KEY};
-use pingora::server::configuration::Opt;
 use pingora::server::Server;
+use pingora::server::configuration::Opt;
 use pingora_proxy::http_proxy_service;
 use std::sync::Arc;
 
