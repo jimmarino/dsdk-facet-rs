@@ -184,11 +184,7 @@ pub async fn wait_for_pod_deleted(namespace: &str, pod_name: &str, timeout_secs:
 }
 
 /// Wait for all pods with a label selector to be deleted
-pub async fn wait_for_pods_deleted_by_label(
-    namespace: &str,
-    label_selector: &str,
-    timeout_secs: u64,
-) -> Result<()> {
+pub async fn wait_for_pods_deleted_by_label(namespace: &str, label_selector: &str, timeout_secs: u64) -> Result<()> {
     // First check if there are any pods with this label
     let check_output = Command::new("kubectl")
         .args(["get", "pods", "-n", namespace, "-l", label_selector, "-o", "name"])
