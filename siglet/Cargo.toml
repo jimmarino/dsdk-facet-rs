@@ -1,0 +1,38 @@
+[package]
+name = "siglet"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "siglet"
+path = "src/main.rs"
+
+[dependencies]
+# Facet library crates
+dsdk-facet-core = { path = "../crates/facet-core" }
+dsdk-facet-proxy = { path = "../crates/facet-proxy" }
+dsdk-facet-postgres = { path = "../crates/facet-postgres" }
+dsdk-facet-token-provider = { path = "../crates/facet-token-provider" }
+
+# Eclipse Data Plane SDK
+dataplane-sdk = { path = "../../dataplane-sdk-rust/crates/sdk" }
+dataplane-sdk-axum = { path = "../../dataplane-sdk-rust/crates/sdk-axum" }
+
+# Runtime dependencies
+tokio = { workspace = true }
+thiserror = { workspace = true }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+anyhow = "1.0"
+config = "0.14"
+
+# HTTP server
+axum = "0.8"
+tower-http = { version = "0.6", features = ["trace"] }
+
+[lints]
+workspace = true

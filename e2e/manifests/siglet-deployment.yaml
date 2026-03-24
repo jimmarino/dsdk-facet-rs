@@ -1,0 +1,60 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: siglet
+  namespace: vault-e2e-test
+  labels:
+    app: siglet
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: siglet
+  template:
+    metadata:
+      labels:
+        app: siglet
+    spec:
+      containers:
+      - name: siglet
+        image: siglet:local
+        imagePullPolicy: Never
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: signaling
+          containerPort: 8081
+          protocol: TCP
+        env:
+        - name: RUST_LOG
+          value: "info,siglet=debug"
+        - name: SIGLET_SIGLET_API_PORT
+          value: "8080"
+        - name: SIGLET_SIGNALING_PORT
+          value: "8081"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      restartPolicy: Always
