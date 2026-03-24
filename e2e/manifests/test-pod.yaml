@@ -42,10 +42,10 @@ spec:
       mountPath: /vault/configs
     resources:
       requests:
-        memory: "128Mi"
+        memory: "256Mi"
         cpu: "50m"
       limits:
-        memory: "256Mi"
+        memory: "512Mi"
         cpu: "200m"
 
   # Test runner container - runs the vault-test binary

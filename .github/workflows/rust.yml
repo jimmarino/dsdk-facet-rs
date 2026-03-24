@@ -17,6 +17,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          path: facet-rs
+
+      - name: Checkout dataplane-sdk-rust
+        uses: actions/checkout@v6
+        with:
+          repository: eclipse-dataplane-core/dataplane-sdk-rust
+          path: dataplane-sdk-rust
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -24,10 +32,13 @@ jobs:
           components: rustfmt, clippy
 
       - name: Check formatting
+        working-directory: facet-rs
         run: cargo fmt --all -- --check
 
       - name: Run clippy
+        working-directory: facet-rs
         run: cargo clippy -- -D warnings
 
       - name: Run tests
+        working-directory: facet-rs
         run: cargo test --all-features --verbose

@@ -64,84 +64,48 @@ pub fn namespace_exists(namespace: &str) -> Result<bool> {
 
 /// Wait for pod to be ready
 pub async fn wait_for_pod_ready(namespace: &str, pod_label: &str, timeout_secs: u64) -> Result<()> {
-    let start = std::time::Instant::now();
+    let output = Command::new("kubectl")
+        .args([
+            "wait",
+            "--for=condition=Ready",
+            "pod",
+            "-l",
+            pod_label,
+            "-n",
+            namespace,
+            &format!("--timeout={}s", timeout_secs),
+        ])
+        .output()
+        .context("Failed to wait for pod")?;
 
-    loop {
-        if start.elapsed().as_secs() > timeout_secs {
-            bail!("Timeout waiting for pod with label {} to be ready", pod_label);
-        }
-
-        let output = Command::new("kubectl")
-            .args([
-                "get",
-                "pods",
-                "-n",
-                namespace,
-                "-l",
-                pod_label,
-                "-o",
-                "jsonpath={.items[0].status.phase}",
-            ])
-            .output()
-            .context("Failed to check pod status")?;
-
-        if output.status.success() {
-            let phase = String::from_utf8_lossy(&output.stdout);
-            if phase.trim() == "Running" {
-                // Also check that all containers are ready
-                let ready_output = Command::new("kubectl")
-                    .args([
-                        "get",
-                        "pods",
-                        "-n",
-                        namespace,
-                        "-l",
-                        pod_label,
-                        "-o",
-                        "jsonpath={.items[0].status.conditions[?(@.type=='Ready')].status}",
-                    ])
-                    .output()
-                    .context("Failed to check pod ready condition")?;
-
-                let ready = String::from_utf8_lossy(&ready_output.stdout);
-                if ready.trim() == "True" {
-                    return Ok(());
-                }
-            }
-        }
-
-        sleep(Duration::from_secs(2)).await;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("Pod with label {} did not become ready: {}", pod_label, stderr);
     }
+
+    Ok(())
 }
 
 /// Wait for deployment to be ready
 pub async fn wait_for_deployment_ready(namespace: &str, deployment_name: &str, timeout_secs: u64) -> Result<()> {
-    let start = std::time::Instant::now();
+    let output = Command::new("kubectl")
+        .args([
+            "wait",
+            "--for=condition=Available",
+            &format!("deployment/{}", deployment_name),
+            "-n",
+            namespace,
+            &format!("--timeout={}s", timeout_secs),
+        ])
+        .output()
+        .context("Failed to wait for deployment")?;
 
-    loop {
-        if start.elapsed().as_secs() > timeout_secs {
-            bail!("Timeout waiting for deployment {} to be ready", deployment_name);
-        }
-
-        let output = Command::new("kubectl")
-            .args([
-                "rollout",
-                "status",
-                "deployment",
-                deployment_name,
-                "-n",
-                namespace,
-                "--timeout=5s",
-            ])
-            .output()
-            .context("Failed to check deployment status")?;
-
-        if output.status.success() {
-            return Ok(());
-        }
-
-        sleep(Duration::from_secs(2)).await;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("Deployment {} did not become ready: {}", deployment_name, stderr);
     }
+
+    Ok(())
 }
 
 /// Execute command in pod
@@ -197,25 +161,66 @@ pub fn delete_pod(namespace: &str, pod_name: &str) -> Result<()> {
 
 /// Wait for pod to be deleted
 pub async fn wait_for_pod_deleted(namespace: &str, pod_name: &str, timeout_secs: u64) -> Result<()> {
-    let start = std::time::Instant::now();
+    let output = Command::new("kubectl")
+        .args([
+            "wait",
+            "--for=delete",
+            &format!("pod/{}", pod_name),
+            "-n",
+            namespace,
+            &format!("--timeout={}s", timeout_secs),
+        ])
+        .output()
+        .context("Failed to wait for pod deletion")?;
 
-    loop {
-        if start.elapsed().as_secs() > timeout_secs {
-            bail!("Timeout waiting for pod {} to be deleted", pod_name);
-        }
-
-        let output = Command::new("kubectl")
-            .args(["get", "pod", pod_name, "-n", namespace])
-            .output()
-            .context("Failed to check pod status")?;
-
-        // If kubectl get pod fails, the pod is deleted
-        if !output.status.success() {
-            return Ok(());
-        }
-
-        sleep(Duration::from_secs(1)).await;
+    // kubectl wait --for=delete returns success when resource is deleted
+    // It returns error if timeout occurs
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("Pod {} was not deleted within timeout: {}", pod_name, stderr);
     }
+
+    Ok(())
+}
+
+/// Wait for all pods with a label selector to be deleted
+pub async fn wait_for_pods_deleted_by_label(namespace: &str, label_selector: &str, timeout_secs: u64) -> Result<()> {
+    // First check if there are any pods with this label
+    let check_output = Command::new("kubectl")
+        .args(["get", "pods", "-n", namespace, "-l", label_selector, "-o", "name"])
+        .output()
+        .context("Failed to check for pods")?;
+
+    // If no pods exist, we're done
+    if check_output.stdout.is_empty() {
+        return Ok(());
+    }
+
+    // Wait for all pods with this label to be deleted
+    let output = Command::new("kubectl")
+        .args([
+            "wait",
+            "--for=delete",
+            "pod",
+            "-l",
+            label_selector,
+            "-n",
+            namespace,
+            &format!("--timeout={}s", timeout_secs),
+        ])
+        .output()
+        .context("Failed to wait for pods deletion")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!(
+            "Pods with label {} were not deleted within timeout: {}",
+            label_selector,
+            stderr
+        );
+    }
+
+    Ok(())
 }
 
 /// Wait for a file to exist inside a pod container

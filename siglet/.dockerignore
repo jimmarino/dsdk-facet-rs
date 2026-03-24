@@ -1,0 +1,8 @@
+target/
+.git/
+.github/
+.idea/
+*.md
+docs/
+e2e/
+.DS_Store

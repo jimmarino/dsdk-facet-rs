@@ -11,3 +11,4 @@
 //
 
 pub mod k8s_vault_sidecar;
+pub mod siglet_e2e;
