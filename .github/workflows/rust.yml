@@ -23,7 +23,7 @@ jobs:
       - name: Checkout dataplane-sdk-rust
         uses: actions/checkout@v6
         with:
-          repository: eclipse-dataspace-sdk-rs/dataplane-sdk-rust
+          repository: eclipse-dataplane-core/dataplane-sdk-rust
           path: dataplane-sdk-rust
 
       - name: Install Rust toolchain
