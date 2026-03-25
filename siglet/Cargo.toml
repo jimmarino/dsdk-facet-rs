@@ -16,9 +16,6 @@ dsdk-facet-postgres = { path = "../crates/facet-postgres" }
 dsdk-facet-token-provider = { path = "../crates/facet-token-provider" }
 
 # Eclipse Data Plane SDK
-# For local development, you can use path dependencies:
-# dataplane-sdk = { path = "../../dataplane-sdk-rust/crates/sdk" }
-# dataplane-sdk-axum = { path = "../../dataplane-sdk-rust/crates/sdk-axum" }
 dataplane-sdk = { git = "https://github.com/eclipse-dataplane-core/dataplane-sdk-rust", branch = "main" }
 dataplane-sdk-axum = { git = "https://github.com/eclipse-dataplane-core/dataplane-sdk-rust", branch = "main" }
 
