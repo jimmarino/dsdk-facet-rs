@@ -18,13 +18,13 @@ use dataplane_sdk::{
 };
 use dsdk_facet_core::token::MemoryTokenStore;
 use siglet::{
-    config::{load_config, SigletConfig, StorageBackend},
+    config::{SigletConfig, StorageBackend, load_config},
     error::SigletError,
     handler::SigletDataFlowHandler,
     server::run_server,
 };
 use tracing::{error, info};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() {
