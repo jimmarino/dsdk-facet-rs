@@ -16,7 +16,7 @@ use dataplane_sdk::{
     core::{db::data_flow::memory::MemoryDataFlowRepo, db::memory::MemoryContext},
     sdk::DataPlaneSdk,
 };
-use dsdk_facet_core::token::MemoryTokenStore;
+use dsdk_facet_core::token::client::MemoryTokenStore;
 use siglet::{
     config::{SigletConfig, StorageBackend, load_config},
     error::SigletError,
@@ -55,7 +55,10 @@ async fn run(cfg: SigletConfig) -> Result<(), SigletError> {
             let ctx = MemoryContext;
             let flow_repo = MemoryDataFlowRepo::default();
             let token_store = Arc::new(MemoryTokenStore::default());
-            let handler = SigletDataFlowHandler::new(token_store);
+            let handler = SigletDataFlowHandler::builder()
+                .token_store(token_store)
+                .dataplane_id("dataplane-1")
+                .build();
 
             let sdk = DataPlaneSdk::builder(ctx)
                 .with_repo(flow_repo)

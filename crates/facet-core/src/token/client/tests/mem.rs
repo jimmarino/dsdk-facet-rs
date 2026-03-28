@@ -10,8 +10,9 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+use super::super::{MemoryTokenStore, TokenData, TokenStore};
 use crate::context::ParticipantContext;
-use crate::token::{MemoryTokenStore, TokenData, TokenError, TokenStore};
+use crate::token::TokenError;
 use crate::util::clock::{Clock, MockClock};
 use chrono::{TimeDelta, Utc};
 use std::sync::Arc;

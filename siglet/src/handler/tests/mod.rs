@@ -15,8 +15,8 @@
 use crate::handler::SigletDataFlowHandler;
 use dataplane_sdk::core::handler::DataFlowHandler;
 use dataplane_sdk::core::model::data_flow::DataFlow;
-use dsdk_facet_core::token::MemoryTokenStore;
-use std::collections::HashSet;
+use dsdk_facet_core::token::client::MemoryTokenStore;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Helper function to create a test DataFlow with required fields
@@ -37,7 +37,10 @@ fn create_test_flow(id: &str, participant_id: &str, transfer_type: &str) -> Data
 #[tokio::test]
 async fn test_can_handle_with_no_transfer_types_accepts_all() {
     let token_store = Arc::new(MemoryTokenStore::new());
-    let handler = SigletDataFlowHandler::new(token_store);
+    let handler = SigletDataFlowHandler::builder()
+        .dataplane_id("dataplane-1")
+        .token_store(token_store)
+        .build();
 
     let flow = create_test_flow("flow-1", "participant-1", "http-pull");
 
@@ -49,13 +52,14 @@ async fn test_can_handle_with_no_transfer_types_accepts_all() {
 #[tokio::test]
 async fn test_can_handle_with_matching_transfer_type_accepts() {
     let token_store = Arc::new(MemoryTokenStore::new());
-    let mut transfer_types = HashSet::new();
-    transfer_types.insert("http-pull".to_string());
-    transfer_types.insert("http-push".to_string());
+    let mut mappings = HashMap::new();
+    mappings.insert("http-pull".to_string(), "HTTP".to_string());
+    mappings.insert("http-push".to_string(), "HTTP".to_string());
 
     let handler = SigletDataFlowHandler::builder()
         .token_store(token_store)
-        .transfer_types(transfer_types)
+        .dataplane_id("dataplane-1")
+        .endpoint_type_mappings(mappings)
         .build();
 
     let flow = create_test_flow("flow-1", "participant-1", "http-pull");
@@ -68,13 +72,14 @@ async fn test_can_handle_with_matching_transfer_type_accepts() {
 #[tokio::test]
 async fn test_can_handle_with_non_matching_transfer_type_rejects() {
     let token_store = Arc::new(MemoryTokenStore::new());
-    let mut transfer_types = HashSet::new();
-    transfer_types.insert("http-pull".to_string());
-    transfer_types.insert("http-push".to_string());
+    let mut mappings = HashMap::new();
+    mappings.insert("http-pull".to_string(), "HTTP".to_string());
+    mappings.insert("http-push".to_string(), "HTTP".to_string());
 
     let handler = SigletDataFlowHandler::builder()
         .token_store(token_store)
-        .transfer_types(transfer_types)
+        .endpoint_type_mappings(mappings)
+        .dataplane_id("dataplane-1")
         .build();
 
     let flow = create_test_flow("flow-1", "participant-1", "UnknownData");
@@ -87,12 +92,19 @@ async fn test_can_handle_with_non_matching_transfer_type_rejects() {
 #[tokio::test]
 async fn test_can_handle_with_single_transfer_type() {
     let token_store = Arc::new(MemoryTokenStore::new());
-    let mut transfer_types = HashSet::new();
-    transfer_types.insert("http-pull".to_string());
+    let mut mappings = HashMap::new();
+    mappings.insert("http-pull".to_string(), "HTTP".to_string());
 
     let handler = SigletDataFlowHandler::builder()
         .token_store(token_store)
-        .transfer_types(transfer_types)
+        .endpoint_type_mappings(mappings)
+        // .issuer("did:web:issuer.com")
+        // .subject("did:web:consumer.com")
+        // .audience("did:web:provider.com")
+        .dataplane_id("dataplane-1")
+        // .refresh_endpoint("https://test/com/refresh")
+        // .token_duration(4000)
+        // .renewal_token_duration(4000)
         .build();
 
     // Should accept http-pull

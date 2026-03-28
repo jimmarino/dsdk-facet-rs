@@ -1,0 +1,219 @@
+//  Copyright (c) 2026 Metaform Systems, Inc
+//
+//  This program and the accompanying materials are made available under the
+//  terms of the Apache License, Version 2.0 which is available at
+//  https://www.apache.org/licenses/LICENSE-2.0
+//
+//  SPDX-License-Identifier: Apache-2.0
+//
+//  Contributors:
+//       Metaform Systems, Inc. - initial API and implementation
+//
+
+pub mod mem;
+pub mod oauth;
+
+#[cfg(test)]
+mod tests;
+
+pub use mem::MemoryTokenStore;
+
+const FIVE_SECONDS_MILLIS: i64 = 5_000;
+
+use crate::context::ParticipantContext;
+use crate::lock::LockManager;
+use crate::token::TokenError;
+use crate::util::clock::{Clock, default_clock};
+use async_trait::async_trait;
+use bon::Builder;
+use chrono::{DateTime, TimeDelta, Utc};
+use std::sync::Arc;
+
+/// Manages token lifecycle with automatic refresh and distributed coordination.
+///
+/// Coordinates retrieval and refresh of tokens from a remote authorization server,
+/// using a lock manager to prevent concurrent refresh attempts. Automatically refreshes
+/// expiring tokens before returning them.
+#[derive(Clone, Builder)]
+pub struct TokenClientApi {
+    lock_manager: Arc<dyn LockManager>,
+    token_store: Arc<dyn TokenStore>,
+    token_client: Arc<dyn TokenClient>,
+    #[builder(default = FIVE_SECONDS_MILLIS)]
+    refresh_before_expiry_ms: i64,
+    #[builder(default = default_clock())]
+    clock: Arc<dyn Clock>,
+}
+
+impl TokenClientApi {
+    pub async fn get_token(
+        &self,
+        participant_context: &ParticipantContext,
+        identifier: &str,
+        owner: &str,
+    ) -> Result<String, TokenError> {
+        let data = self.token_store.get_token(participant_context, identifier).await?;
+
+        // Check token validity
+        if self.clock.now() < (data.expires_at - TimeDelta::milliseconds(self.refresh_before_expiry_ms)) {
+            return Ok(data.token);
+        }
+
+        // Token is expiring, acquire lock for refresh
+        let guard = self
+            .lock_manager
+            .lock(identifier, owner)
+            .await
+            .map_err(|e| TokenError::general_error(format!("Failed to acquire lock: {}", e)))?;
+
+        // Re-fetch token after acquiring lock (another thread may have already refreshed)
+        let data = self.token_store.get_token(participant_context, identifier).await?;
+
+        let token = if self.clock.now() >= (data.expires_at - TimeDelta::milliseconds(self.refresh_before_expiry_ms)) {
+            // Token still expired after recheck, perform refresh
+            let refreshed_data = self
+                .token_client
+                .refresh_token(
+                    participant_context,
+                    identifier,
+                    &data.token,
+                    &data.refresh_token,
+                    &data.refresh_endpoint,
+                )
+                .await?;
+            self.token_store.update_token(refreshed_data.clone()).await?;
+            refreshed_data.token
+        } else {
+            // Token was already refreshed by another thread while we waited for the lock
+            data.token
+        };
+
+        drop(guard);
+        Ok(token)
+    }
+
+    // TODO refactor to take a single struct argument instead of 6+ parameters
+    #[allow(clippy::too_many_arguments)]
+    pub async fn save_token(
+        &self,
+        participant_context: &str,
+        identifier: &str,
+        token: &str,
+        refresh_token: &str,
+        refresh_endpoint: &str,
+        expires_at: DateTime<Utc>,
+        owner: &str,
+    ) -> Result<(), TokenError> {
+        let guard = self
+            .lock_manager
+            .lock(identifier, owner)
+            .await
+            .map_err(|e| TokenError::general_error(format!("Failed to acquire lock: {}", e)))?;
+
+        let data = TokenData {
+            participant_context: participant_context.to_string(),
+            identifier: identifier.to_string(),
+            token: token.to_string(),
+            refresh_token: refresh_token.to_string(),
+            expires_at,
+            refresh_endpoint: refresh_endpoint.to_string(),
+        };
+
+        self.token_store.save_token(data).await?;
+        drop(guard);
+        Ok(())
+    }
+
+    pub async fn delete_token(
+        &self,
+        participant_context: &str,
+        identifier: &str,
+        owner: &str,
+    ) -> Result<(), TokenError> {
+        let guard = self
+            .lock_manager
+            .lock(identifier, owner)
+            .await
+            .map_err(|e| TokenError::general_error(format!("Failed to acquire lock: {}", e)))?;
+
+        self.token_store.remove_token(participant_context, identifier).await?;
+        drop(guard);
+        Ok(())
+    }
+}
+
+/// Refreshes expired tokens with a remote authorization server.
+///
+/// Implementations handle the details of communicating with a token endpoint to obtain fresh tokens using a refresh
+/// token.
+#[async_trait]
+pub trait TokenClient: Send + Sync {
+    async fn refresh_token(
+        &self,
+        participant_context: &ParticipantContext,
+        endpoint_identifier: &str,
+        access_token: &str,
+        refresh_token: &str,
+        refresh_endpoint: &str,
+    ) -> Result<TokenData, TokenError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TokenData {
+    pub identifier: String,
+    pub participant_context: String,
+    pub token: String,
+    pub refresh_token: String,
+    pub expires_at: DateTime<Utc>,
+    pub refresh_endpoint: String,
+}
+
+/// Persists and retrieves tokens with optional expiration tracking.
+///
+/// Implementations provide storage and retrieval of token data, including access tokens, refresh tokens, and
+/// expiration times. The storage backend (in-memory, database, etc.) is implementation-dependent.
+#[async_trait]
+pub trait TokenStore: Send + Sync {
+    /// Retrieves a token by participant context and identifier.
+    ///
+    /// # Arguments
+    /// * `participant_context` - Participant identifier for isolation
+    /// * `identifier` - Token identifier
+    ///
+    /// # Errors
+    /// Returns `TokenError::TokenNotFound` if the token does not exist, or database/decryption errors.
+    async fn get_token(
+        &self,
+        participant_context: &ParticipantContext,
+        identifier: &str,
+    ) -> Result<TokenData, TokenError>;
+
+    /// Saves or updates a token.
+    ///
+    /// # Arguments
+    /// * `data` - Token data to persist
+    ///
+    /// # Errors
+    /// Returns database operation errors.
+    async fn save_token(&self, data: TokenData) -> Result<(), TokenError>;
+
+    /// Updates a token.
+    ///
+    /// # Arguments
+    /// * `data` - Token data to persist
+    ///
+    /// # Errors
+    /// Returns database operation errors.
+    async fn update_token(&self, data: TokenData) -> Result<(), TokenError>;
+
+    /// Deletes a token.
+    ///
+    /// # Arguments
+    /// * `participant_context` - Participant identifier for isolation
+    /// * `identifier` - Token identifier
+    /// Returns `TokenError::TokenNotFound` if the token does not exist, or database/decryption errors.
+    async fn remove_token(&self, participant_context: &str, identifier: &str) -> Result<(), TokenError>;
+
+    /// Closes any resources held by the store.
+    async fn close(&self);
+}

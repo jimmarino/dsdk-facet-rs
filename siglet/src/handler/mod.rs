@@ -11,6 +11,7 @@
 //
 use bon::Builder;
 use dataplane_sdk::core::error::HandlerError;
+use dataplane_sdk::core::model::data_address::DataAddress;
 use dataplane_sdk::core::{
     db::memory::MemoryContext,
     db::tx::TransactionalContext,
@@ -21,28 +22,38 @@ use dataplane_sdk::core::{
         messages::DataFlowResponseMessage,
     },
 };
-use dsdk_facet_core::token::{TokenData, TokenStore};
-use std::collections::HashSet;
+use dsdk_facet_core::token::client::{TokenData, TokenStore};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// DataFlowHandler implementation for Siglet
 #[derive(Clone, Builder)]
 pub struct SigletDataFlowHandler {
     token_store: Arc<dyn TokenStore>,
-    /// Set of transfer types that this handler can process
-    #[builder(default = HashSet::new())]
-    transfer_types: HashSet<String>,
+    // jwt_generator: Arc<dyn JwtGenerator>,
+    // #[builder(into)]
+    // issuer: String,
+    // #[builder(into)]
+    // subject: String,
+    // #[builder(into)]
+    // audience: String,
+    #[builder(into)]
+    dataplane_id: String,
+    //
+    // #[builder(into)]
+    // refresh_endpoint: String,
+    //
+    // token_duration: i64,
+    // renewal_token_duration: i64,
+    //
+    // #[builder(default = default_clock())]
+    // clock: Arc<dyn Clock>,
+    /// Transfer types to endpoint types that this handler can process
+    #[builder(default)]
+    endpoint_type_mappings: HashMap<String, String>,
 }
 
-impl SigletDataFlowHandler {
-    /// Creates a new SigletDataFlowHandler with the given token store and no transfer type restrictions
-    pub fn new(token_store: Arc<dyn TokenStore>) -> Self {
-        Self {
-            token_store,
-            transfer_types: HashSet::new(),
-        }
-    }
-}
+impl SigletDataFlowHandler {}
 
 #[async_trait::async_trait]
 impl DataFlowHandler for SigletDataFlowHandler {
@@ -50,19 +61,26 @@ impl DataFlowHandler for SigletDataFlowHandler {
 
     async fn can_handle(&self, flow: &DataFlow) -> HandlerResult<bool> {
         // If no transfer types are configured, accept all flows
-        if self.transfer_types.is_empty() {
+        if self.endpoint_type_mappings.is_empty() {
             return Ok(true);
         }
 
-        Ok(self.transfer_types.contains(&flow.transfer_type))
+        Ok(self.endpoint_type_mappings.contains_key(&flow.transfer_type))
     }
 
-    async fn on_start(&self, _tx: &mut Self::Transaction, _flow: &DataFlow) -> HandlerResult<DataFlowResponseMessage> {
-        // TODO: Integrate with facet-token-provider to create access tokens
-        // TODO: Return proper data address with endpoint and access token
+    async fn on_start(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<DataFlowResponseMessage> {
+        let data_address = DataAddress::builder()
+            .endpoint_type(
+                self.endpoint_type_mappings
+                    .get(&flow.transfer_type)
+                    .unwrap_or(&"HTTP".to_string()),
+            )
+            .build();
+
         Ok(DataFlowResponseMessage::builder()
-            .dataplane_id("siglet")
+            .dataplane_id(self.dataplane_id.clone())
             .state(DataFlowState::Started)
+            .data_address(data_address)
             .build())
     }
 

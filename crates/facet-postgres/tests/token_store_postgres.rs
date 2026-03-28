@@ -14,7 +14,8 @@
 use chrono::{TimeDelta, Utc};
 
 use dsdk_facet_core::context::ParticipantContext;
-use dsdk_facet_core::token::{TokenData, TokenError, TokenStore};
+use dsdk_facet_core::token::TokenError;
+use dsdk_facet_core::token::client::{TokenData, TokenStore};
 use dsdk_facet_core::util::clock::{Clock, MockClock};
 use dsdk_facet_core::util::encryption::encryption_key;
 use dsdk_facet_postgres::token::PostgresTokenStore;

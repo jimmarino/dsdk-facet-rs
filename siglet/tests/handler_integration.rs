@@ -19,7 +19,7 @@ use dataplane_sdk::core::handler::DataFlowHandler;
 use dataplane_sdk::core::model::data_address::{DataAddress, EndpointProperty};
 use dataplane_sdk::core::model::data_flow::DataFlow;
 use dsdk_facet_core::context::ParticipantContext;
-use dsdk_facet_core::token::{MemoryTokenStore, TokenStore};
+use dsdk_facet_core::token::client::{MemoryTokenStore, TokenStore};
 use siglet::handler::SigletDataFlowHandler;
 use std::sync::Arc;
 
@@ -67,7 +67,10 @@ fn create_test_flow_with_data_address(
 #[tokio::test]
 async fn test_on_suspend_succeeds() {
     let token_store = Arc::new(MemoryTokenStore::new());
-    let handler = SigletDataFlowHandler::new(token_store);
+    let handler = SigletDataFlowHandler::builder()
+        .token_store(token_store)
+        .dataplane_id("test-dataplane")
+        .build();
 
     let flow = create_test_flow("flow-1", "participant-1", "HttpData");
 
@@ -84,8 +87,10 @@ async fn test_on_suspend_succeeds() {
 #[tokio::test]
 async fn test_on_started_saves_token_to_store() {
     let token_store = Arc::new(MemoryTokenStore::new());
-    let handler = SigletDataFlowHandler::new(token_store.clone());
-
+    let handler = SigletDataFlowHandler::builder()
+        .token_store(token_store.clone())
+        .dataplane_id("test-dataplane")
+        .build();
     let expires_at = Utc::now() + TimeDelta::hours(1);
     let expires_at_str = expires_at.to_rfc3339();
 
@@ -125,7 +130,10 @@ async fn test_on_started_saves_token_to_store() {
 #[tokio::test]
 async fn test_on_started_without_data_address_succeeds() {
     let token_store = Arc::new(MemoryTokenStore::new());
-    let handler = SigletDataFlowHandler::new(token_store);
+    let handler = SigletDataFlowHandler::builder()
+        .token_store(token_store)
+        .dataplane_id("test-dataplane")
+        .build();
 
     let flow = create_test_flow("flow-1", "participant-1", "HttpData");
 
@@ -139,7 +147,10 @@ async fn test_on_started_without_data_address_succeeds() {
 #[tokio::test]
 async fn test_on_started_with_missing_endpoint_fails() {
     let token_store = Arc::new(MemoryTokenStore::new());
-    let handler = SigletDataFlowHandler::new(token_store);
+    let handler = SigletDataFlowHandler::builder()
+        .token_store(token_store)
+        .dataplane_id("test-dataplane")
+        .build();
 
     let data_address = DataAddress::builder()
         .endpoint_type("HttpData")
@@ -159,7 +170,10 @@ async fn test_on_started_with_missing_endpoint_fails() {
 #[tokio::test]
 async fn test_on_started_with_missing_access_token_fails() {
     let token_store = Arc::new(MemoryTokenStore::new());
-    let handler = SigletDataFlowHandler::new(token_store);
+    let handler = SigletDataFlowHandler::builder()
+        .token_store(token_store)
+        .dataplane_id("test-dataplane")
+        .build();
 
     let data_address = DataAddress::builder()
         .endpoint_type("HttpData")
@@ -179,7 +193,10 @@ async fn test_on_started_with_missing_access_token_fails() {
 #[tokio::test]
 async fn test_on_started_with_missing_token_fails() {
     let token_store = Arc::new(MemoryTokenStore::new());
-    let handler = SigletDataFlowHandler::new(token_store);
+    let handler = SigletDataFlowHandler::builder()
+        .token_store(token_store)
+        .dataplane_id("test-dataplane")
+        .build();
 
     let data_address = DataAddress::builder()
         .endpoint_type("HttpData")

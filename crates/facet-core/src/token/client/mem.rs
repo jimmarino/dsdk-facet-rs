@@ -10,8 +10,9 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+use super::{TokenData, TokenStore};
 use crate::context::ParticipantContext;
-use crate::token::{TokenData, TokenError, TokenStore};
+use crate::token::TokenError;
 use crate::util::clock::{Clock, default_clock};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
