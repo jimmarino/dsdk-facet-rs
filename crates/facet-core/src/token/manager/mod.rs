@@ -157,7 +157,9 @@ pub struct JwtTokenManager {
     #[builder(into)]
     server_secret: Vec<u8>,
 
+    #[builder(default = 3600)] // 1 hour
     token_duration: i64,
+    #[builder(default = 172800)] // 2 days
     renewal_token_duration: i64,
 
     #[builder(default = 32)]

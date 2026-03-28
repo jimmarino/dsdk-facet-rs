@@ -23,98 +23,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// Test fixture containing all the components needed for testing
-struct TestFixture {
-    manager: JwtTokenManager,
-    store: Arc<MemoryRenewableTokenStore>,
-    generator: Arc<LocalJwtGenerator>,
-    verifier: Arc<LocalJwtVerifier>,
-}
-
-/// Helper function to create a JwtTokenManager with real JWT generator/verifier for testing
-fn create_jwt_token_manager(clock: Arc<dyn Clock>) -> TestFixture {
-    let keypair = generate_ed25519_keypair_pem().expect("Failed to generate test keypair");
-
-    let signing_resolver = Arc::new(
-        StaticSigningKeyResolver::builder()
-            .key(keypair.private_key.clone())
-            .iss("did:web:issuer.com")
-            .kid("test_kid_1")
-            .key_format(KeyFormat::PEM)
-            .build(),
-    );
-
-    let verification_resolver = Arc::new(
-        StaticVerificationKeyResolver::builder()
-            .key(keypair.public_key.clone())
-            .key_format(KeyFormat::PEM)
-            .build(),
-    );
-
-    let generator = Arc::new(
-        LocalJwtGenerator::builder()
-            .signing_key_resolver(signing_resolver)
-            .signing_algorithm(SigningAlgorithm::EdDSA)
-            .clock(clock.clone())
-            .build(),
-    );
-
-    let verifier = Arc::new(
-        LocalJwtVerifier::builder()
-            .verification_key_resolver(verification_resolver)
-            .signing_algorithm(SigningAlgorithm::EdDSA)
-            .leeway_seconds(86400 * 365 * 30) // 30-years leeway for testing with mock times
-            .build(),
-    );
-
-    let store = Arc::new(MemoryRenewableTokenStore::new());
-
-    let manager = JwtTokenManager::builder()
-        .issuer("did:web:issuer.com")
-        .refresh_endpoint("http://localhost:8080/refresh")
-        .server_secret(b"this_is_exactly_32bytes_long!!!!".to_vec())
-        .token_duration(3600) // 1 hour
-        .renewal_token_duration(86400) // 24 hours
-        .clock(clock)
-        .token_store(store.clone())
-        .token_generator(generator.clone())
-        .token_verifier(verifier.clone())
-        .build();
-
-    TestFixture {
-        manager,
-        store,
-        generator,
-        verifier,
-    }
-}
-
-/// Helper to create a bound token (JWT containing the access token)
-async fn create_bound_token(
-    fixture: &TestFixture,
-    participant_context: &ParticipantContext,
-    subject: &str,
-    access_token: &str,
-    clock: Arc<dyn Clock>,
-) -> String {
-    let mut custom = serde_json::Map::new();
-    custom.insert("token".to_string(), Value::String(access_token.to_string()));
-
-    let claims = TokenClaims::builder()
-        .iss("did:web:issuer.com")
-        .sub(subject)
-        .aud(participant_context.identifier.clone())
-        .exp(clock.now().timestamp() + 300) // 5 minutes
-        .custom(custom)
-        .build();
-
-    fixture
-        .generator
-        .generate_token(participant_context, claims)
-        .await
-        .expect("Failed to generate bound token")
-}
-
 // =============================================================================
 // Generate Pair Tests
 // =============================================================================
@@ -848,4 +756,96 @@ async fn test_security_different_participants_isolated() {
         result.is_err(),
         "Should not be able to use participant1's token with participant2 context"
     );
+}
+
+/// Test fixture containing all the components needed for testing
+struct TestFixture {
+    manager: JwtTokenManager,
+    store: Arc<MemoryRenewableTokenStore>,
+    generator: Arc<LocalJwtGenerator>,
+    verifier: Arc<LocalJwtVerifier>,
+}
+
+/// Helper function to create a JwtTokenManager with real JWT generator/verifier for testing
+fn create_jwt_token_manager(clock: Arc<dyn Clock>) -> TestFixture {
+    let keypair = generate_ed25519_keypair_pem().expect("Failed to generate test keypair");
+
+    let signing_resolver = Arc::new(
+        StaticSigningKeyResolver::builder()
+            .key(keypair.private_key.clone())
+            .iss("did:web:issuer.com")
+            .kid("test_kid_1")
+            .key_format(KeyFormat::PEM)
+            .build(),
+    );
+
+    let verification_resolver = Arc::new(
+        StaticVerificationKeyResolver::builder()
+            .key(keypair.public_key.clone())
+            .key_format(KeyFormat::PEM)
+            .build(),
+    );
+
+    let generator = Arc::new(
+        LocalJwtGenerator::builder()
+            .signing_key_resolver(signing_resolver)
+            .signing_algorithm(SigningAlgorithm::EdDSA)
+            .clock(clock.clone())
+            .build(),
+    );
+
+    let verifier = Arc::new(
+        LocalJwtVerifier::builder()
+            .verification_key_resolver(verification_resolver)
+            .signing_algorithm(SigningAlgorithm::EdDSA)
+            .leeway_seconds(86400 * 365 * 30) // 30-years leeway for testing with mock times
+            .build(),
+    );
+
+    let store = Arc::new(MemoryRenewableTokenStore::new());
+
+    let manager = JwtTokenManager::builder()
+        .issuer("did:web:issuer.com")
+        .refresh_endpoint("http://localhost:8080/refresh")
+        .server_secret(b"this_is_exactly_32bytes_long!!!!".to_vec())
+        .token_duration(3600) // 1 hour
+        .renewal_token_duration(86400) // 24 hours
+        .clock(clock)
+        .token_store(store.clone())
+        .token_generator(generator.clone())
+        .token_verifier(verifier.clone())
+        .build();
+
+    TestFixture {
+        manager,
+        store,
+        generator,
+        verifier,
+    }
+}
+
+/// Helper to create a bound token (JWT containing the access token)
+async fn create_bound_token(
+    fixture: &TestFixture,
+    participant_context: &ParticipantContext,
+    subject: &str,
+    access_token: &str,
+    clock: Arc<dyn Clock>,
+) -> String {
+    let mut custom = serde_json::Map::new();
+    custom.insert("token".to_string(), Value::String(access_token.to_string()));
+
+    let claims = TokenClaims::builder()
+        .iss("did:web:issuer.com")
+        .sub(subject)
+        .aud(participant_context.identifier.clone())
+        .exp(clock.now().timestamp() + 300) // 5 minutes
+        .custom(custom)
+        .build();
+
+    fixture
+        .generator
+        .generate_token(participant_context, claims)
+        .await
+        .expect("Failed to generate bound token")
 }
