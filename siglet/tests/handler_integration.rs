@@ -20,8 +20,45 @@ use dataplane_sdk::core::model::data_address::{DataAddress, EndpointProperty};
 use dataplane_sdk::core::model::data_flow::DataFlow;
 use dsdk_facet_core::context::ParticipantContext;
 use dsdk_facet_core::token::client::{MemoryTokenStore, TokenStore};
+use dsdk_facet_core::token::manager::{RenewableTokenPair, TokenManager};
+use dsdk_facet_core::token::TokenError;
 use siglet::handler::SigletDataFlowHandler;
+use std::collections::HashMap;
 use std::sync::Arc;
+
+/// Mock TokenManager for testing
+struct MockTokenManager;
+
+#[async_trait::async_trait]
+impl TokenManager for MockTokenManager {
+    async fn generate_pair(
+        &self,
+        _participant_context: &ParticipantContext,
+        _subject: &str,
+        _claims: HashMap<String, String>,
+    ) -> Result<RenewableTokenPair, TokenError> {
+        Ok(RenewableTokenPair::builder()
+            .token("mock_token".to_string())
+            .refresh_token("mock_refresh_token".to_string())
+            .expires_at(chrono::Utc::now() + chrono::Duration::hours(1))
+            .refresh_endpoint("https://mock.endpoint/refresh".to_string())
+            .build())
+    }
+
+    async fn renew(
+        &self,
+        _participant_context: &ParticipantContext,
+        _bound_token: &str,
+        _refresh_token: &str,
+    ) -> Result<RenewableTokenPair, TokenError> {
+        Ok(RenewableTokenPair::builder()
+            .token("mock_renewed_token".to_string())
+            .refresh_token("mock_new_refresh_token".to_string())
+            .expires_at(chrono::Utc::now() + chrono::Duration::hours(1))
+            .refresh_endpoint("https://mock.endpoint/refresh".to_string())
+            .build())
+    }
+}
 
 /// Helper to create endpoint properties for DataAddress
 fn create_endpoint_property(name: &str, value: &str) -> EndpointProperty {
@@ -67,12 +104,14 @@ fn create_test_flow_with_data_address(
 #[tokio::test]
 async fn test_on_suspend_succeeds() {
     let token_store = Arc::new(MemoryTokenStore::new());
+    let token_manager = Arc::new(MockTokenManager);
     let handler = SigletDataFlowHandler::builder()
         .token_store(token_store)
+        .token_manager(token_manager)
         .dataplane_id("test-dataplane")
         .build();
 
-    let flow = create_test_flow("flow-1", "participant-1", "HttpData");
+    let flow = create_test_flow("flow-1", "participant-1", "http-pull");
 
     let context = MemoryContext;
     let mut tx = context.begin().await.unwrap();
@@ -87,8 +126,10 @@ async fn test_on_suspend_succeeds() {
 #[tokio::test]
 async fn test_on_started_saves_token_to_store() {
     let token_store = Arc::new(MemoryTokenStore::new());
+    let token_manager = Arc::new(MockTokenManager);
     let handler = SigletDataFlowHandler::builder()
         .token_store(token_store.clone())
+        .token_manager(token_manager)
         .dataplane_id("test-dataplane")
         .build();
     let expires_at = Utc::now() + TimeDelta::hours(1);
@@ -106,7 +147,7 @@ async fn test_on_started_saves_token_to_store() {
         ])
         .build();
 
-    let flow = create_test_flow_with_data_address("flow-1", "participant-1", "HttpData", data_address);
+    let flow = create_test_flow_with_data_address("flow-1", "participant-1", "http-pull", data_address);
 
     let context = MemoryContext;
     let mut tx = context.begin().await.unwrap();
@@ -130,12 +171,14 @@ async fn test_on_started_saves_token_to_store() {
 #[tokio::test]
 async fn test_on_started_without_data_address_succeeds() {
     let token_store = Arc::new(MemoryTokenStore::new());
+    let token_manager = Arc::new(MockTokenManager);
     let handler = SigletDataFlowHandler::builder()
         .token_store(token_store)
+        .token_manager(token_manager)
         .dataplane_id("test-dataplane")
         .build();
 
-    let flow = create_test_flow("flow-1", "participant-1", "HttpData");
+    let flow = create_test_flow("flow-1", "participant-1", "http-pull");
 
     let context = MemoryContext;
     let mut tx = context.begin().await.unwrap();
@@ -147,8 +190,10 @@ async fn test_on_started_without_data_address_succeeds() {
 #[tokio::test]
 async fn test_on_started_with_missing_endpoint_fails() {
     let token_store = Arc::new(MemoryTokenStore::new());
+    let token_manager = Arc::new(MockTokenManager);
     let handler = SigletDataFlowHandler::builder()
         .token_store(token_store)
+        .token_manager(token_manager)
         .dataplane_id("test-dataplane")
         .build();
 
@@ -157,7 +202,7 @@ async fn test_on_started_with_missing_endpoint_fails() {
         .endpoint_properties(vec![create_endpoint_property("access_token", "token-id-123")])
         .build();
 
-    let flow = create_test_flow_with_data_address("flow-1", "participant-1", "HttpData", data_address);
+    let flow = create_test_flow_with_data_address("flow-1", "participant-1", "http-pull", data_address);
 
     let context = MemoryContext;
     let mut tx = context.begin().await.unwrap();
@@ -170,8 +215,10 @@ async fn test_on_started_with_missing_endpoint_fails() {
 #[tokio::test]
 async fn test_on_started_with_missing_access_token_fails() {
     let token_store = Arc::new(MemoryTokenStore::new());
+    let token_manager = Arc::new(MockTokenManager);
     let handler = SigletDataFlowHandler::builder()
         .token_store(token_store)
+        .token_manager(token_manager)
         .dataplane_id("test-dataplane")
         .build();
 
@@ -180,7 +227,7 @@ async fn test_on_started_with_missing_access_token_fails() {
         .endpoint_properties(vec![create_endpoint_property("endpoint", "https://example.com/data")])
         .build();
 
-    let flow = create_test_flow_with_data_address("flow-1", "participant-1", "HttpData", data_address);
+    let flow = create_test_flow_with_data_address("flow-1", "participant-1", "http-pull", data_address);
 
     let context = MemoryContext;
     let mut tx = context.begin().await.unwrap();
@@ -193,8 +240,10 @@ async fn test_on_started_with_missing_access_token_fails() {
 #[tokio::test]
 async fn test_on_started_with_missing_token_fails() {
     let token_store = Arc::new(MemoryTokenStore::new());
+    let token_manager = Arc::new(MockTokenManager);
     let handler = SigletDataFlowHandler::builder()
         .token_store(token_store)
+        .token_manager(token_manager)
         .dataplane_id("test-dataplane")
         .build();
 
@@ -206,7 +255,7 @@ async fn test_on_started_with_missing_token_fails() {
         ])
         .build();
 
-    let flow = create_test_flow_with_data_address("flow-1", "participant-1", "HttpData", data_address);
+    let flow = create_test_flow_with_data_address("flow-1", "participant-1", "http-pull", data_address);
 
     let context = MemoryContext;
     let mut tx = context.begin().await.unwrap();

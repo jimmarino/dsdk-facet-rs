@@ -9,6 +9,7 @@
 //  Contributors:
 //       Metaform Systems, Inc. - initial API and implementation
 //
+use bon::Builder;
 use config::{Config, Environment, File};
 use serde::Deserialize;
 use std::{
@@ -25,6 +26,23 @@ pub enum StorageBackend {
 }
 
 #[derive(Deserialize, Clone, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum TokenSource {
+    Client,
+    Provider,
+    None,
+}
+
+#[derive(Builder, Deserialize, Clone, Debug)]
+pub struct TransferTypes {
+    pub transfer_type: String,
+    pub endpoint_type: String,
+
+    #[builder(default = TokenSource::None)]
+    pub token_source: TokenSource,
+}
+
+#[derive(Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct SigletConfig {
     #[serde(default = "default_siglet_api_port")]
@@ -35,6 +53,8 @@ pub struct SigletConfig {
     pub bind: IpAddr,
     #[serde(default)]
     pub storage_backend: StorageBackend,
+    #[serde(default)]
+    pub transfer_types: Vec<TransferTypes>,
 }
 
 impl Default for SigletConfig {
@@ -44,6 +64,7 @@ impl Default for SigletConfig {
             signaling_port: 8081,
             bind: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
             storage_backend: StorageBackend::Memory,
+            transfer_types: Vec::new(),
         }
     }
 }
