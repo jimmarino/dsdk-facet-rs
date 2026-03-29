@@ -17,6 +17,7 @@ use crate::jwt::{
     JwtGenerator, JwtVerifier, KeyFormat, LocalJwtGenerator, LocalJwtVerifier, SigningAlgorithm, TokenClaims,
 };
 use crate::token::manager::RenewableTokenStore;
+use crate::token::TokenError;
 use crate::util::clock::{Clock, MockClock};
 use chrono::{DateTime, TimeDelta};
 use serde_json::Value;
@@ -848,4 +849,153 @@ async fn create_bound_token(
         .generate_token(participant_context, claims)
         .await
         .expect("Failed to generate bound token")
+}
+
+#[tokio::test]
+async fn test_revoke_token_success() {
+    let clock = Arc::new(MockClock::new(DateTime::from_timestamp(1000000000, 0).unwrap()));
+    let fixture = create_jwt_token_manager(clock);
+    let pc = ParticipantContext::builder()
+        .id("test_participant")
+        .identifier("did:web:provider.com")
+        .build();
+
+    // Generate a token pair
+    let _pair = fixture
+        .manager
+        .generate_pair(&pc, "did:web:consumer.com", HashMap::new(), "flow_123".to_string())
+        .await
+        .expect("Failed to generate pair");
+
+    // Verify token exists
+    let entry_before = fixture
+        .store
+        .find_by_flow_id(&pc, "flow_123")
+        .await;
+    assert!(entry_before.is_ok(), "Token should exist before revocation");
+
+    // Revoke the token
+    let result = fixture
+        .manager
+        .revoke_token(&pc, "flow_123")
+        .await;
+    assert!(result.is_ok(), "Revoke should succeed");
+
+    // Verify token no longer exists
+    let entry_after = fixture
+        .store
+        .find_by_flow_id(&pc, "flow_123")
+        .await;
+    assert!(entry_after.is_err(), "Token should not exist after revocation");
+}
+
+#[tokio::test]
+async fn test_revoke_token_nonexistent() {
+    let clock = Arc::new(MockClock::new(DateTime::from_timestamp(1000000000, 0).unwrap()));
+    let fixture = create_jwt_token_manager(clock);
+    let pc = ParticipantContext::builder()
+        .id("test_participant")
+        .identifier("did:web:provider.com")
+        .build();
+
+    // Try to revoke a token that doesn't exist
+    let result = fixture
+        .manager
+        .revoke_token(&pc, "nonexistent_flow")
+        .await;
+
+    assert!(result.is_err(), "Revoking nonexistent token should fail");
+    assert!(matches!(result.unwrap_err(), TokenError::TokenNotFound { .. }));
+}
+
+#[tokio::test]
+async fn test_revoke_token_removes_from_all_indices() {
+    let clock = Arc::new(MockClock::new(DateTime::from_timestamp(1000000000, 0).unwrap()));
+    let fixture = create_jwt_token_manager(clock);
+    let pc = ParticipantContext::builder()
+        .id("test_participant")
+        .identifier("did:web:provider.com")
+        .build();
+
+    // Generate a token pair
+    let _pair = fixture
+        .manager
+        .generate_pair(&pc, "did:web:consumer.com", HashMap::new(), "flow_456".to_string())
+        .await
+        .expect("Failed to generate pair");
+
+    // Get the entry to extract id and hash
+    let entry = fixture
+        .store
+        .find_by_flow_id(&pc, "flow_456")
+        .await
+        .expect("Token should exist");
+
+    let token_id = entry.id.clone();
+    let hashed_refresh = entry.hashed_refresh_token.clone();
+
+    // Verify token exists in all indices
+    assert!(fixture.store.find_by_id(&pc, &token_id).await.is_ok());
+    assert!(fixture.store.find_by_renewal(&pc, &hashed_refresh).await.is_ok());
+    assert!(fixture.store.find_by_flow_id(&pc, "flow_456").await.is_ok());
+
+    // Revoke the token
+    fixture
+        .manager
+        .revoke_token(&pc, "flow_456")
+        .await
+        .expect("Revoke should succeed");
+
+    // Verify token removed from all indices
+    assert!(fixture.store.find_by_id(&pc, &token_id).await.is_err());
+    assert!(fixture.store.find_by_renewal(&pc, &hashed_refresh).await.is_err());
+    assert!(fixture.store.find_by_flow_id(&pc, "flow_456").await.is_err());
+}
+
+#[tokio::test]
+async fn test_revoke_token_context_isolation() {
+    let clock = Arc::new(MockClock::new(DateTime::from_timestamp(1000000000, 0).unwrap()));
+    let fixture = create_jwt_token_manager(clock);
+    let pc1 = ParticipantContext::builder()
+        .id("participant1")
+        .identifier("did:web:provider1.com")
+        .build();
+    let pc2 = ParticipantContext::builder()
+        .id("participant2")
+        .identifier("did:web:provider2.com")
+        .build();
+
+    // Generate tokens for both participants with same flow_id
+    fixture
+        .manager
+        .generate_pair(&pc1, "did:web:consumer.com", HashMap::new(), "shared_flow".to_string())
+        .await
+        .expect("Failed to generate pair for pc1");
+
+    fixture
+        .manager
+        .generate_pair(&pc2, "did:web:consumer.com", HashMap::new(), "shared_flow".to_string())
+        .await
+        .expect("Failed to generate pair for pc2");
+
+    // Revoke pc1's token
+    fixture
+        .manager
+        .revoke_token(&pc1, "shared_flow")
+        .await
+        .expect("Revoke should succeed for pc1");
+
+    // Verify pc1's token is gone
+    let result_pc1 = fixture
+        .store
+        .find_by_flow_id(&pc1, "shared_flow")
+        .await;
+    assert!(result_pc1.is_err(), "pc1's token should be revoked");
+
+    // Verify pc2's token still exists
+    let result_pc2 = fixture
+        .store
+        .find_by_flow_id(&pc2, "shared_flow")
+        .await;
+    assert!(result_pc2.is_ok(), "pc2's token should still exist");
 }

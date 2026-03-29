@@ -13,8 +13,8 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use dsdk_facet_core::context::ParticipantContext;
-use dsdk_facet_core::token::manager::{RenewableTokenEntry, RenewableTokenStore};
 use dsdk_facet_core::token::TokenError;
+use dsdk_facet_core::token::manager::{RenewableTokenEntry, RenewableTokenStore};
 use sqlx::PgPool;
 use std::collections::HashMap;
 
@@ -317,7 +317,7 @@ impl RenewableTokenStore for PostgresRenewableTokenStore {
         })
     }
 
-    async fn delete_by_flow_id(
+    async fn remove_by_flow_id(
         &self,
         participant_context: &ParticipantContext,
         flow_id: &str,

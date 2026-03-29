@@ -56,6 +56,14 @@ impl TokenManager for MockTokenManager {
             .refresh_endpoint("https://mock.endpoint/refresh".to_string())
             .build())
     }
+
+    async fn revoke_token(
+        &self,
+        _participant_context: &ParticipantContext,
+        _flow_id: &str,
+    ) -> Result<(), TokenError> {
+        Ok(())
+    }
 }
 
 /// Helper function to create a test DataFlow with required fields

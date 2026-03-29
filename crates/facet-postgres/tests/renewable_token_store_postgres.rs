@@ -765,7 +765,7 @@ async fn test_postgres_find_by_flow_id_not_found() {
 }
 
 #[tokio::test]
-async fn test_postgres_delete_by_flow_id_success() {
+async fn test_postgres_remove_by_flow_id_success() {
     let (pool, _container) = setup_postgres_container().await;
     let store = PostgresRenewableTokenStore::new(pool);
     store.initialize().await.unwrap();
@@ -780,7 +780,7 @@ async fn test_postgres_delete_by_flow_id_success() {
         expires_at,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
-        flow_id: "flow_to_delete".to_string(),
+        flow_id: "flow_to_remove".to_string(),
     };
 
     let pc = &ParticipantContext::builder().id("participant1").build();
@@ -788,14 +788,14 @@ async fn test_postgres_delete_by_flow_id_success() {
     store.save(pc, entry.clone()).await.unwrap();
 
     // Verify entry exists
-    let found = store.find_by_flow_id(pc, "flow_to_delete").await.unwrap();
+    let found = store.find_by_flow_id(pc, "flow_to_remove").await.unwrap();
     assert_eq!(found.id, "test_id");
 
     // Delete by flow_id
-    let result = store.delete_by_flow_id(pc, "flow_to_delete").await;
+    let result = store.remove_by_flow_id(pc, "flow_to_remove").await;
     assert!(result.is_ok());
 
     // Verify entry no longer exists
-    let not_found_by_flow = store.find_by_flow_id(pc, "flow_to_delete").await;
+    let not_found_by_flow = store.find_by_flow_id(pc, "flow_to_remove").await;
     assert!(not_found_by_flow.is_err());
 }

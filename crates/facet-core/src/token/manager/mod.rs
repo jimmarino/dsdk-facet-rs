@@ -59,6 +59,8 @@ pub trait TokenManager: Send + Sync {
         bound_token: &str,
         refresh_token: &str,
     ) -> Result<RenewableTokenPair, TokenError>;
+
+    async fn revoke_token(&self, participant_context: &ParticipantContext, flow_id: &str) -> Result<(), TokenError>;
 }
 
 /// A struct representing a pair of tokens used for authentication and periodic renewal.
@@ -148,7 +150,7 @@ pub trait RenewableTokenStore: Send + Sync {
         flow_id: &str,
     ) -> Result<RenewableTokenEntry, TokenError>;
 
-    async fn delete_by_flow_id(
+    async fn remove_by_flow_id(
         &self,
         participant_context: &ParticipantContext,
         flow_id: &str,
@@ -376,5 +378,9 @@ impl TokenManager for JwtTokenManager {
             expires_at: new_expires_at,
             refresh_endpoint: self.refresh_endpoint.clone(),
         })
+    }
+
+    async fn revoke_token(&self, participant_context: &ParticipantContext, flow_id: &str) -> Result<(), TokenError> {
+        self.token_store.remove_by_flow_id(participant_context, flow_id).await
     }
 }

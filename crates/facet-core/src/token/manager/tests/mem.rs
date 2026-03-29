@@ -418,7 +418,7 @@ async fn test_concurrent_save_operations() {
                 expires_at: expiration,
                 subject: "test_subject".to_string(),
                 claims: HashMap::new(),
-        flow_id: "test_flow".to_string(),
+                flow_id: "test_flow".to_string(),
             };
 
             store_clone.save(&pc, entry).await.unwrap();
@@ -478,7 +478,7 @@ async fn test_concurrent_update_operations() {
                 expires_at: expiration,
                 subject: "test_subject".to_string(),
                 claims: HashMap::new(),
-        flow_id: "test_flow".to_string(),
+                flow_id: "test_flow".to_string(),
             };
 
             store_clone.update(&pc_clone, &old_hash, entry).await
@@ -771,7 +771,7 @@ async fn test_find_by_flow_id_context_isolation() {
 }
 
 #[tokio::test]
-async fn test_delete_by_flow_id_success() {
+async fn test_remove_by_flow_id_success() {
     let store = MemoryRenewableTokenStore::new();
     let expiration = Utc::now() + TimeDelta::seconds(3600);
     let pc = &ParticipantContext::builder().id("participant1").build();
@@ -783,21 +783,21 @@ async fn test_delete_by_flow_id_success() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
-        flow_id: "flow_to_delete".to_string(),
+        flow_id: "flow_to_remove".to_string(),
     };
 
     store.save(pc, entry.clone()).await.unwrap();
 
     // Verify entry exists
-    let found = store.find_by_flow_id(pc, "flow_to_delete").await.unwrap();
+    let found = store.find_by_flow_id(pc, "flow_to_remove").await.unwrap();
     assert_eq!(found.id, "test_id");
 
     // Delete by flow_id
-    let result = store.delete_by_flow_id(pc, "flow_to_delete").await;
+    let result = store.remove_by_flow_id(pc, "flow_to_remove").await;
     assert!(result.is_ok());
 
     // Verify entry no longer exists (all indices should be cleared)
-    let not_found_by_flow = store.find_by_flow_id(pc, "flow_to_delete").await;
+    let not_found_by_flow = store.find_by_flow_id(pc, "flow_to_remove").await;
     assert!(not_found_by_flow.is_err());
 
     let not_found_by_hash = store.find_by_renewal(pc, "test_hash").await;
@@ -812,7 +812,7 @@ async fn test_delete_by_flow_id_not_found() {
     let store = MemoryRenewableTokenStore::new();
     let pc = &ParticipantContext::builder().id("participant1").build();
 
-    let result = store.delete_by_flow_id(pc, "nonexistent_flow").await;
+    let result = store.remove_by_flow_id(pc, "nonexistent_flow").await;
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), TokenError::TokenNotFound { .. }));
 }
@@ -849,7 +849,7 @@ async fn test_delete_by_flow_id_context_isolation() {
     store.save(pc2, entry_p2).await.unwrap();
 
     // Delete p1's token
-    let result = store.delete_by_flow_id(pc1, "flow_delete").await;
+    let result = store.remove_by_flow_id(pc1, "flow_delete").await;
     assert!(result.is_ok());
 
     // P1's token should be gone

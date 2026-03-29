@@ -119,7 +119,7 @@ impl RenewableTokenStore for MemoryRenewableTokenStore {
         Ok(entry.clone())
     }
 
-    async fn delete_by_flow_id(
+    async fn remove_by_flow_id(
         &self,
         participant_context: &ParticipantContext,
         flow_id: &str,
