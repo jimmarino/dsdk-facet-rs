@@ -41,7 +41,7 @@ async fn test_generate_pair_success() {
 
     let result = fixture
         .manager
-        .generate_pair(&pc, "did:web:consumer.com", HashMap::new())
+        .generate_pair(&pc, "did:web:consumer.com", HashMap::new(), "test_flow".to_string())
         .await;
 
     assert!(
@@ -79,7 +79,7 @@ async fn test_generate_pair_token_is_valid_jwt() {
 
     let pair = fixture
         .manager
-        .generate_pair(&pc, "did:web:consumer.com", custom_claims)
+        .generate_pair(&pc, "did:web:consumer.com", custom_claims, "test_flow".to_string())
         .await
         .expect("generate_pair should succeed");
 
@@ -122,7 +122,7 @@ async fn test_generate_pair_stores_token_entry() {
 
     let pair = fixture
         .manager
-        .generate_pair(&pc, "did:web:consumer.com", custom_claims.clone())
+        .generate_pair(&pc, "did:web:consumer.com", custom_claims.clone(), "test_flow".to_string())
         .await
         .expect("generate_pair should succeed");
 
@@ -154,19 +154,19 @@ async fn test_generate_pair_refresh_token_is_unique() {
 
     let pair1 = fixture
         .manager
-        .generate_pair(&pc, "did:web:consumer.com", HashMap::new())
+        .generate_pair(&pc, "did:web:consumer.com", HashMap::new(), "test_flow".to_string())
         .await
         .expect("generate_pair should succeed");
 
     let pair2 = fixture
         .manager
-        .generate_pair(&pc, "did:web:consumer.com", HashMap::new())
+        .generate_pair(&pc, "did:web:consumer.com", HashMap::new(), "test_flow".to_string())
         .await
         .expect("generate_pair should succeed");
 
     let pair3 = fixture
         .manager
-        .generate_pair(&pc, "did:web:consumer.com", HashMap::new())
+        .generate_pair(&pc, "did:web:consumer.com", HashMap::new(), "test_flow".to_string())
         .await
         .expect("generate_pair should succeed");
 
@@ -198,7 +198,7 @@ async fn test_generate_pair_with_empty_custom_claims() {
 
     let result = fixture
         .manager
-        .generate_pair(&pc, "did:web:consumer.com", HashMap::new())
+        .generate_pair(&pc, "did:web:consumer.com", HashMap::new(), "test_flow".to_string())
         .await;
 
     assert!(result.is_ok(), "Should accept empty custom claims");
@@ -223,7 +223,7 @@ async fn test_renew_success() {
     // First generate a token pair
     let original_pair = fixture
         .manager
-        .generate_pair(&pc, "did:web:consumer.com", HashMap::new())
+        .generate_pair(&pc, "did:web:consumer.com", HashMap::new(), "test_flow".to_string())
         .await
         .expect("generate_pair should succeed");
 
@@ -275,7 +275,7 @@ async fn test_renew_preserves_subject_and_claims() {
     // Generate original pair
     let original_pair = fixture
         .manager
-        .generate_pair(&pc, "did:web:consumer.com", custom_claims)
+        .generate_pair(&pc, "did:web:consumer.com", custom_claims, "test_flow".to_string())
         .await
         .expect("generate_pair should succeed");
 
@@ -330,7 +330,7 @@ async fn test_renew_invalid_refresh_token() {
     // Generate a token pair
     let original_pair = fixture
         .manager
-        .generate_pair(&pc, "did:web:consumer.com", HashMap::new())
+        .generate_pair(&pc, "did:web:consumer.com", HashMap::new(), "test_flow".to_string())
         .await
         .expect("generate_pair should succeed");
 
@@ -371,7 +371,7 @@ async fn test_renew_subject_mismatch() {
     // Generate a token pair for user123
     let original_pair = fixture
         .manager
-        .generate_pair(&pc, "did:web:consumer.com", HashMap::new())
+        .generate_pair(&pc, "did:web:consumer.com", HashMap::new(), "test_flow".to_string())
         .await
         .expect("generate_pair should succeed");
 
@@ -415,7 +415,7 @@ async fn test_renew_missing_token_claim() {
     // Generate a token pair
     let original_pair = fixture
         .manager
-        .generate_pair(&pc, "did:web:consumer.com", HashMap::new())
+        .generate_pair(&pc, "did:web:consumer.com", HashMap::new(), "test_flow".to_string())
         .await
         .expect("generate_pair should succeed");
 
@@ -463,7 +463,7 @@ async fn test_renew_token_mismatch() {
     // Generate a token pair
     let original_pair = fixture
         .manager
-        .generate_pair(&pc, "did:web:consumer.com", HashMap::new())
+        .generate_pair(&pc, "did:web:consumer.com", HashMap::new(), "test_flow".to_string())
         .await
         .expect("generate_pair should succeed");
 
@@ -507,7 +507,7 @@ async fn test_renew_uses_consistent_expiration_time() {
     // Generate original pair
     let original_pair = fixture
         .manager
-        .generate_pair(&pc, "did:web:consumer.com", HashMap::new())
+        .generate_pair(&pc, "did:web:consumer.com", HashMap::new(), "test_flow".to_string())
         .await
         .expect("generate_pair should succeed");
 
@@ -565,7 +565,7 @@ async fn test_round_trip_generate_and_renew() {
     // Step 1: Generate token pair
     let original_pair = fixture
         .manager
-        .generate_pair(&pc, "did:web:consumer.com", custom_claims)
+        .generate_pair(&pc, "did:web:consumer.com", custom_claims, "test_flow".to_string())
         .await
         .expect("generate_pair should succeed");
 
@@ -615,7 +615,7 @@ async fn test_round_trip_multiple_renewals() {
     // Generate initial pair
     let mut current_pair = fixture
         .manager
-        .generate_pair(&pc, "did:web:consumer.com", HashMap::new())
+        .generate_pair(&pc, "did:web:consumer.com", HashMap::new(), "test_flow".to_string())
         .await
         .expect("generate_pair should succeed");
 
@@ -667,7 +667,7 @@ async fn test_round_trip_old_refresh_token_invalid_after_renewal() {
     // Generate initial pair
     let original_pair = fixture
         .manager
-        .generate_pair(&pc, "did:web:consumer.com", HashMap::new())
+        .generate_pair(&pc, "did:web:consumer.com", HashMap::new(), "test_flow".to_string())
         .await
         .expect("generate_pair should succeed");
 
@@ -743,7 +743,7 @@ async fn test_security_different_participants_isolated() {
     // Generate token for participant1
     let pair1 = fixture
         .manager
-        .generate_pair(&pc1, "did:web:consumer.com", HashMap::new())
+        .generate_pair(&pc1, "did:web:consumer.com", HashMap::new(), "test_flow".to_string())
         .await
         .expect("generate_pair should succeed");
 

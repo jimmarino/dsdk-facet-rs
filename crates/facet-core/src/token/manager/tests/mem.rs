@@ -29,6 +29,7 @@ async fn test_save_success() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let result = store.save(pc, entry.clone()).await;
@@ -58,6 +59,7 @@ async fn test_save_multiple_entries() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let entry2 = RenewableTokenEntry {
@@ -67,6 +69,7 @@ async fn test_save_multiple_entries() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let entry3 = RenewableTokenEntry {
@@ -76,6 +79,7 @@ async fn test_save_multiple_entries() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     store.save(pc, entry1).await.unwrap();
@@ -101,6 +105,7 @@ async fn test_save_overwrites_same_hash() {
         expires_at: expiration1,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let entry2 = RenewableTokenEntry {
@@ -110,6 +115,7 @@ async fn test_save_overwrites_same_hash() {
         expires_at: expiration2,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     store.save(pc, entry1).await.unwrap();
@@ -146,6 +152,7 @@ async fn test_update_success() {
         expires_at: expiration1,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     store.save(pc, initial_entry).await.unwrap();
@@ -158,6 +165,7 @@ async fn test_update_success() {
         expires_at: expiration2,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let result = store.update(pc, "old_hash", updated_entry).await;
@@ -196,6 +204,7 @@ async fn test_update_not_found() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let result = store.update(pc, "nonexistent_hash", entry).await;
@@ -218,6 +227,7 @@ async fn test_context_isolation_save() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let entry_p2 = RenewableTokenEntry {
@@ -227,6 +237,7 @@ async fn test_context_isolation_save() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     store.save(pc1, entry_p1).await.unwrap();
@@ -256,6 +267,7 @@ async fn test_context_isolation_find() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     store.save(pc1, entry_p1).await.unwrap();
@@ -292,6 +304,7 @@ async fn test_context_isolation_update() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let entry_p2 = RenewableTokenEntry {
@@ -301,6 +314,7 @@ async fn test_context_isolation_update() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     store.save(pc1, entry_p1).await.unwrap();
@@ -314,6 +328,7 @@ async fn test_context_isolation_update() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let result = store.update(pc2, "hash_p1", updated_entry).await;
@@ -332,6 +347,7 @@ async fn test_context_isolation_update() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let result = store.update(pc1, "hash_p1", updated_p1_entry).await;
@@ -363,6 +379,7 @@ async fn test_cloned_entry_independence() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     store.save(pc, entry).await.unwrap();
@@ -401,6 +418,7 @@ async fn test_concurrent_save_operations() {
                 expires_at: expiration,
                 subject: "test_subject".to_string(),
                 claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
             };
 
             store_clone.save(&pc, entry).await.unwrap();
@@ -438,6 +456,7 @@ async fn test_concurrent_update_operations() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
     store.save(&pc, initial_entry).await.unwrap();
 
@@ -459,6 +478,7 @@ async fn test_concurrent_update_operations() {
                 expires_at: expiration,
                 subject: "test_subject".to_string(),
                 claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
             };
 
             store_clone.update(&pc_clone, &old_hash, entry).await
@@ -489,6 +509,7 @@ async fn test_find_by_id_success() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     store.save(pc, entry.clone()).await.unwrap();
@@ -524,6 +545,7 @@ async fn test_find_by_id_multiple_entries() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let entry2 = RenewableTokenEntry {
@@ -533,6 +555,7 @@ async fn test_find_by_id_multiple_entries() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let entry3 = RenewableTokenEntry {
@@ -542,6 +565,7 @@ async fn test_find_by_id_multiple_entries() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     store.save(pc, entry1).await.unwrap();
@@ -570,6 +594,7 @@ async fn test_find_by_id_context_isolation() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let entry_p2 = RenewableTokenEntry {
@@ -579,6 +604,7 @@ async fn test_find_by_id_context_isolation() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     store.save(pc1, entry_p1).await.unwrap();
@@ -611,6 +637,7 @@ async fn test_find_by_id_after_update() {
         expires_at: expiration1,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     store.save(pc, initial_entry).await.unwrap();
@@ -627,6 +654,7 @@ async fn test_find_by_id_after_update() {
         expires_at: expiration2,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     store.update(pc, "hash_original", updated_entry).await.unwrap();
@@ -654,6 +682,7 @@ async fn test_dual_index_consistency() {
         expires_at: expiration,
         subject: "test_subject".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     store.save(pc, entry).await.unwrap();
@@ -666,4 +695,168 @@ async fn test_dual_index_consistency() {
     assert_eq!(by_hash.token, by_id.token);
     assert_eq!(by_hash.hashed_refresh_token, by_id.hashed_refresh_token);
     assert_eq!(by_hash.expires_at, by_id.expires_at);
+}
+
+#[tokio::test]
+async fn test_find_by_flow_id_success() {
+    let store = MemoryRenewableTokenStore::new();
+    let expiration = Utc::now() + TimeDelta::seconds(3600);
+    let pc = &ParticipantContext::builder().id("participant1").build();
+
+    let entry = RenewableTokenEntry {
+        id: "test_id".to_string(),
+        token: "test_token".to_string(),
+        hashed_refresh_token: "test_hash".to_string(),
+        expires_at: expiration,
+        subject: "test_subject".to_string(),
+        claims: HashMap::new(),
+        flow_id: "flow_123".to_string(),
+    };
+
+    store.save(pc, entry.clone()).await.unwrap();
+
+    let retrieved = store.find_by_flow_id(pc, "flow_123").await.unwrap();
+    assert_eq!(retrieved.id, "test_id");
+    assert_eq!(retrieved.token, "test_token");
+    assert_eq!(retrieved.flow_id, "flow_123");
+}
+
+#[tokio::test]
+async fn test_find_by_flow_id_not_found() {
+    let store = MemoryRenewableTokenStore::new();
+    let pc = &ParticipantContext::builder().id("participant1").build();
+
+    let result = store.find_by_flow_id(pc, "nonexistent_flow").await;
+    assert!(result.is_err());
+    assert!(matches!(result.unwrap_err(), TokenError::TokenNotFound { .. }));
+}
+
+#[tokio::test]
+async fn test_find_by_flow_id_context_isolation() {
+    let store = MemoryRenewableTokenStore::new();
+    let expiration = Utc::now() + TimeDelta::seconds(3600);
+
+    let pc1 = &ParticipantContext::builder().id("participant1").build();
+    let pc2 = &ParticipantContext::builder().id("participant2").build();
+
+    let entry_p1 = RenewableTokenEntry {
+        id: "id_p1".to_string(),
+        token: "token_p1".to_string(),
+        hashed_refresh_token: "hash_p1".to_string(),
+        expires_at: expiration,
+        subject: "test_subject".to_string(),
+        claims: HashMap::new(),
+        flow_id: "shared_flow_id".to_string(),
+    };
+
+    let entry_p2 = RenewableTokenEntry {
+        id: "id_p2".to_string(),
+        token: "token_p2".to_string(),
+        hashed_refresh_token: "hash_p2".to_string(),
+        expires_at: expiration,
+        subject: "test_subject".to_string(),
+        claims: HashMap::new(),
+        flow_id: "shared_flow_id".to_string(),
+    };
+
+    store.save(pc1, entry_p1).await.unwrap();
+    store.save(pc2, entry_p2).await.unwrap();
+
+    // Each participant should only see their own token
+    let retrieved_p1 = store.find_by_flow_id(pc1, "shared_flow_id").await.unwrap();
+    let retrieved_p2 = store.find_by_flow_id(pc2, "shared_flow_id").await.unwrap();
+
+    assert_eq!(retrieved_p1.token, "token_p1");
+    assert_eq!(retrieved_p2.token, "token_p2");
+}
+
+#[tokio::test]
+async fn test_delete_by_flow_id_success() {
+    let store = MemoryRenewableTokenStore::new();
+    let expiration = Utc::now() + TimeDelta::seconds(3600);
+    let pc = &ParticipantContext::builder().id("participant1").build();
+
+    let entry = RenewableTokenEntry {
+        id: "test_id".to_string(),
+        token: "test_token".to_string(),
+        hashed_refresh_token: "test_hash".to_string(),
+        expires_at: expiration,
+        subject: "test_subject".to_string(),
+        claims: HashMap::new(),
+        flow_id: "flow_to_delete".to_string(),
+    };
+
+    store.save(pc, entry.clone()).await.unwrap();
+
+    // Verify entry exists
+    let found = store.find_by_flow_id(pc, "flow_to_delete").await.unwrap();
+    assert_eq!(found.id, "test_id");
+
+    // Delete by flow_id
+    let result = store.delete_by_flow_id(pc, "flow_to_delete").await;
+    assert!(result.is_ok());
+
+    // Verify entry no longer exists (all indices should be cleared)
+    let not_found_by_flow = store.find_by_flow_id(pc, "flow_to_delete").await;
+    assert!(not_found_by_flow.is_err());
+
+    let not_found_by_hash = store.find_by_renewal(pc, "test_hash").await;
+    assert!(not_found_by_hash.is_err());
+
+    let not_found_by_id = store.find_by_id(pc, "test_id").await;
+    assert!(not_found_by_id.is_err());
+}
+
+#[tokio::test]
+async fn test_delete_by_flow_id_not_found() {
+    let store = MemoryRenewableTokenStore::new();
+    let pc = &ParticipantContext::builder().id("participant1").build();
+
+    let result = store.delete_by_flow_id(pc, "nonexistent_flow").await;
+    assert!(result.is_err());
+    assert!(matches!(result.unwrap_err(), TokenError::TokenNotFound { .. }));
+}
+
+#[tokio::test]
+async fn test_delete_by_flow_id_context_isolation() {
+    let store = MemoryRenewableTokenStore::new();
+    let expiration = Utc::now() + TimeDelta::seconds(3600);
+
+    let pc1 = &ParticipantContext::builder().id("participant1").build();
+    let pc2 = &ParticipantContext::builder().id("participant2").build();
+
+    let entry_p1 = RenewableTokenEntry {
+        id: "id_p1".to_string(),
+        token: "token_p1".to_string(),
+        hashed_refresh_token: "hash_p1".to_string(),
+        expires_at: expiration,
+        subject: "test_subject".to_string(),
+        claims: HashMap::new(),
+        flow_id: "flow_delete".to_string(),
+    };
+
+    let entry_p2 = RenewableTokenEntry {
+        id: "id_p2".to_string(),
+        token: "token_p2".to_string(),
+        hashed_refresh_token: "hash_p2".to_string(),
+        expires_at: expiration,
+        subject: "test_subject".to_string(),
+        claims: HashMap::new(),
+        flow_id: "flow_delete".to_string(),
+    };
+
+    store.save(pc1, entry_p1).await.unwrap();
+    store.save(pc2, entry_p2).await.unwrap();
+
+    // Delete p1's token
+    let result = store.delete_by_flow_id(pc1, "flow_delete").await;
+    assert!(result.is_ok());
+
+    // P1's token should be gone
+    let not_found_p1 = store.find_by_flow_id(pc1, "flow_delete").await;
+    assert!(not_found_p1.is_err());
+
+    // P2's token should still exist
+    let found_p2 = store.find_by_flow_id(pc2, "flow_delete").await.unwrap();
+    assert_eq!(found_p2.token, "token_p2");
 }

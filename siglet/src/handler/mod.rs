@@ -96,7 +96,7 @@ impl SigletDataFlowHandler {
 
         let pair = self
             .token_manager
-            .generate_pair(participant_context, &flow.counter_party_id, claims)
+            .generate_pair(participant_context, &flow.counter_party_id, claims, flow.id.clone())
             .await
             .map_err(|e| HandlerError::Generic(format!("Failed to generate token pair: {}", e).into()))?;
 
@@ -118,7 +118,7 @@ impl SigletDataFlowHandler {
 
         let pair = self
             .token_manager
-            .generate_pair(participant_context, &flow.counter_party_id, claims)
+            .generate_pair(participant_context, &flow.counter_party_id, claims, flow.id.clone())
             .await
             .map_err(|e| HandlerError::Generic(format!("Failed to generate token pair: {}", e).into()))?;
 

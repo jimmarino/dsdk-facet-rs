@@ -49,6 +49,7 @@ async fn test_postgres_save_and_find_by_renewal() {
         expires_at,
         subject: "user@example.com".to_string(),
         claims: claims.clone(),
+        flow_id: "test_flow".to_string(),
     };
 
     let pc = &ParticipantContext::builder().id("participant1").build();
@@ -83,6 +84,7 @@ async fn test_postgres_save_and_find_by_id() {
         expires_at,
         subject: "admin@example.com".to_string(),
         claims,
+        flow_id: "test_flow".to_string(),
     };
 
     let pc = &ParticipantContext::builder().id("participant1").build();
@@ -145,6 +147,7 @@ async fn test_postgres_save_upserts_on_duplicate() {
         expires_at: expires_at_1,
         subject: "user@example.com".to_string(),
         claims: claims1,
+        flow_id: "test_flow".to_string(),
     };
 
     let entry2 = RenewableTokenEntry {
@@ -154,6 +157,7 @@ async fn test_postgres_save_upserts_on_duplicate() {
         expires_at: expires_at_2,
         subject: "user@example.com".to_string(),
         claims: claims2.clone(),
+        flow_id: "test_flow".to_string(),
     };
 
     let pc = &ParticipantContext::builder().id("participant1").build();
@@ -187,6 +191,7 @@ async fn test_postgres_update_success() {
         expires_at,
         subject: "user@example.com".to_string(),
         claims: claims.clone(),
+        flow_id: "test_flow".to_string(),
     };
 
     let pc = &ParticipantContext::builder().id("participant1").build();
@@ -201,6 +206,7 @@ async fn test_postgres_update_success() {
         expires_at: new_expires_at,
         subject: "user@example.com".to_string(),
         claims,
+        flow_id: "test_flow".to_string(),
     };
 
     store.update(pc, "old_hash", new_entry).await.unwrap();
@@ -232,6 +238,7 @@ async fn test_postgres_update_nonexistent_token() {
         expires_at,
         subject: "user@example.com".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let pc = &ParticipantContext::builder().id("participant1").build();
@@ -257,6 +264,7 @@ async fn test_postgres_multiple_tokens() {
         expires_at,
         subject: "user1@example.com".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let entry2 = RenewableTokenEntry {
@@ -266,6 +274,7 @@ async fn test_postgres_multiple_tokens() {
         expires_at,
         subject: "user2@example.com".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let pc = &ParticipantContext::builder().id("participant1").build();
@@ -299,6 +308,7 @@ async fn test_postgres_token_with_special_characters() {
         expires_at,
         subject: "user+tag@example.com".to_string(),
         claims,
+        flow_id: "test_flow".to_string(),
     };
 
     let pc = &ParticipantContext::builder().id("participant1").build();
@@ -332,6 +342,7 @@ async fn test_postgres_token_with_long_values() {
         expires_at,
         subject: "s".repeat(250),
         claims: claims.clone(),
+        flow_id: "test_flow".to_string(),
     };
 
     let pc = &ParticipantContext::builder().id("participant1").build();
@@ -363,6 +374,7 @@ async fn test_postgres_save_find_update_flow() {
         expires_at: expires_at_1,
         subject: "user@example.com".to_string(),
         claims: claims.clone(),
+        flow_id: "test_flow".to_string(),
     };
 
     let pc = &ParticipantContext::builder().id("participant1").build();
@@ -383,6 +395,7 @@ async fn test_postgres_save_find_update_flow() {
         expires_at: expires_at_2,
         subject: "user@example.com".to_string(),
         claims,
+        flow_id: "test_flow".to_string(),
     };
 
     store.update(pc, "hash1", new_entry).await.unwrap();
@@ -413,6 +426,7 @@ async fn test_context_isolation_save() {
         expires_at,
         subject: "user1@example.com".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let entry_p2 = RenewableTokenEntry {
@@ -422,6 +436,7 @@ async fn test_context_isolation_save() {
         expires_at,
         subject: "user2@example.com".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let pc1 = &ParticipantContext::builder().id("participant1").build();
@@ -458,6 +473,7 @@ async fn test_context_isolation_find_by_renewal() {
         expires_at,
         subject: "user1@example.com".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let entry_p2 = RenewableTokenEntry {
@@ -467,6 +483,7 @@ async fn test_context_isolation_find_by_renewal() {
         expires_at,
         subject: "user2@example.com".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let pc1 = &ParticipantContext::builder().id("participant1").build();
@@ -504,6 +521,7 @@ async fn test_context_isolation_find_by_id() {
         expires_at,
         subject: "user1@example.com".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let entry_p2 = RenewableTokenEntry {
@@ -513,6 +531,7 @@ async fn test_context_isolation_find_by_id() {
         expires_at,
         subject: "user2@example.com".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let pc1 = &ParticipantContext::builder().id("participant1").build();
@@ -544,6 +563,7 @@ async fn test_context_isolation_update() {
         expires_at,
         subject: "user1@example.com".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let entry_p2 = RenewableTokenEntry {
@@ -553,6 +573,7 @@ async fn test_context_isolation_update() {
         expires_at,
         subject: "user2@example.com".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let pc1 = &ParticipantContext::builder().id("participant1").build();
@@ -569,6 +590,7 @@ async fn test_context_isolation_update() {
         expires_at,
         subject: "user1@example.com".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     store.update(pc1, "hash1", updated_p1).await.unwrap();
@@ -588,6 +610,7 @@ async fn test_context_isolation_update() {
         expires_at,
         subject: "user3@example.com".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let result_p3 = store.update(pc3, "nonexistent_hash", update_p3).await;
@@ -616,6 +639,7 @@ async fn test_postgres_claims_serialization() {
         expires_at,
         subject: "user@example.com".to_string(),
         claims: claims.clone(),
+        flow_id: "test_flow".to_string(),
     };
 
     let pc = ParticipantContext::builder().id("participant1").build();
@@ -658,6 +682,7 @@ async fn test_postgres_empty_claims() {
         expires_at,
         subject: "user@example.com".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let pc = ParticipantContext::builder().id("participant1").build();
@@ -684,6 +709,7 @@ async fn test_postgres_timestamp_precision() {
         expires_at,
         subject: "user@example.com".to_string(),
         claims: HashMap::new(),
+        flow_id: "test_flow".to_string(),
     };
 
     let pc = ParticipantContext::builder().id("participant1").build();
@@ -694,4 +720,82 @@ async fn test_postgres_timestamp_precision() {
 
     // PostgreSQL truncates to microseconds, so we verify it's within acceptable range
     assert_eq!(retrieved.expires_at, truncate_to_micros(expires_at));
+}
+
+#[tokio::test]
+async fn test_postgres_find_by_flow_id_success() {
+    let (pool, _container) = setup_postgres_container().await;
+    let store = PostgresRenewableTokenStore::new(pool);
+    store.initialize().await.unwrap();
+
+    let initial_time = Utc::now();
+    let expires_at = initial_time + TimeDelta::seconds(3600);
+
+    let entry = RenewableTokenEntry {
+        id: "test_id".to_string(),
+        token: "test_token".to_string(),
+        hashed_refresh_token: "test_hash".to_string(),
+        expires_at,
+        subject: "test_subject".to_string(),
+        claims: HashMap::new(),
+        flow_id: "flow_123".to_string(),
+    };
+
+    let pc = &ParticipantContext::builder().id("participant1").build();
+
+    store.save(pc, entry.clone()).await.unwrap();
+
+    let retrieved = store.find_by_flow_id(pc, "flow_123").await.unwrap();
+    assert_eq!(retrieved.id, "test_id");
+    assert_eq!(retrieved.token, "test_token");
+    assert_eq!(retrieved.flow_id, "flow_123");
+}
+
+#[tokio::test]
+async fn test_postgres_find_by_flow_id_not_found() {
+    let (pool, _container) = setup_postgres_container().await;
+    let store = PostgresRenewableTokenStore::new(pool);
+    store.initialize().await.unwrap();
+
+    let pc = &ParticipantContext::builder().id("participant1").build();
+
+    let result = store.find_by_flow_id(pc, "nonexistent_flow").await;
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("Token not found"));
+}
+
+#[tokio::test]
+async fn test_postgres_delete_by_flow_id_success() {
+    let (pool, _container) = setup_postgres_container().await;
+    let store = PostgresRenewableTokenStore::new(pool);
+    store.initialize().await.unwrap();
+
+    let initial_time = Utc::now();
+    let expires_at = initial_time + TimeDelta::seconds(3600);
+
+    let entry = RenewableTokenEntry {
+        id: "test_id".to_string(),
+        token: "test_token".to_string(),
+        hashed_refresh_token: "test_hash".to_string(),
+        expires_at,
+        subject: "test_subject".to_string(),
+        claims: HashMap::new(),
+        flow_id: "flow_to_delete".to_string(),
+    };
+
+    let pc = &ParticipantContext::builder().id("participant1").build();
+
+    store.save(pc, entry.clone()).await.unwrap();
+
+    // Verify entry exists
+    let found = store.find_by_flow_id(pc, "flow_to_delete").await.unwrap();
+    assert_eq!(found.id, "test_id");
+
+    // Delete by flow_id
+    let result = store.delete_by_flow_id(pc, "flow_to_delete").await;
+    assert!(result.is_ok());
+
+    // Verify entry no longer exists
+    let not_found_by_flow = store.find_by_flow_id(pc, "flow_to_delete").await;
+    assert!(not_found_by_flow.is_err());
 }

@@ -19,9 +19,9 @@ use dataplane_sdk::core::handler::DataFlowHandler;
 use dataplane_sdk::core::model::data_address::{DataAddress, EndpointProperty};
 use dataplane_sdk::core::model::data_flow::DataFlow;
 use dsdk_facet_core::context::ParticipantContext;
+use dsdk_facet_core::token::TokenError;
 use dsdk_facet_core::token::client::{MemoryTokenStore, TokenStore};
 use dsdk_facet_core::token::manager::{RenewableTokenPair, TokenManager};
-use dsdk_facet_core::token::TokenError;
 use siglet::handler::SigletDataFlowHandler;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -36,11 +36,12 @@ impl TokenManager for MockTokenManager {
         _participant_context: &ParticipantContext,
         _subject: &str,
         _claims: HashMap<String, String>,
+        _flow_id: String,
     ) -> Result<RenewableTokenPair, TokenError> {
         Ok(RenewableTokenPair::builder()
             .token("mock_token".to_string())
             .refresh_token("mock_refresh_token".to_string())
-            .expires_at(chrono::Utc::now() + chrono::Duration::hours(1))
+            .expires_at(Utc::now() + chrono::Duration::hours(1))
             .refresh_endpoint("https://mock.endpoint/refresh".to_string())
             .build())
     }
@@ -54,7 +55,7 @@ impl TokenManager for MockTokenManager {
         Ok(RenewableTokenPair::builder()
             .token("mock_renewed_token".to_string())
             .refresh_token("mock_new_refresh_token".to_string())
-            .expires_at(chrono::Utc::now() + chrono::Duration::hours(1))
+            .expires_at(Utc::now() + chrono::Duration::hours(1))
             .refresh_endpoint("https://mock.endpoint/refresh".to_string())
             .build())
     }

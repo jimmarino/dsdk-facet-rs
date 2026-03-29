@@ -50,6 +50,7 @@ pub trait TokenManager: Send + Sync {
         participant_context: &ParticipantContext,
         subject: &str,
         claims: HashMap<String, String>,
+        flow_id: String,
     ) -> Result<RenewableTokenPair, TokenError>;
 
     async fn renew(
@@ -106,6 +107,9 @@ pub struct RenewableTokenPair {
 ///
 /// - `claims`:
 ///   Additional claims associated with the token, stored as key-value pairs.
+///
+/// - `flow_id`:
+///   An identifier for the flow or session associated with this token.
 #[derive(Clone, Debug)]
 pub struct RenewableTokenEntry {
     pub id: String,
@@ -114,6 +118,7 @@ pub struct RenewableTokenEntry {
     pub expires_at: DateTime<Utc>,
     pub subject: String,
     pub claims: HashMap<String, String>,
+    pub flow_id: String,
 }
 
 /// Stores renewable token pairs.
@@ -136,6 +141,18 @@ pub trait RenewableTokenStore: Send + Sync {
         participant_context: &ParticipantContext,
         id: &str,
     ) -> Result<RenewableTokenEntry, TokenError>;
+
+    async fn find_by_flow_id(
+        &self,
+        participant_context: &ParticipantContext,
+        flow_id: &str,
+    ) -> Result<RenewableTokenEntry, TokenError>;
+
+    async fn delete_by_flow_id(
+        &self,
+        participant_context: &ParticipantContext,
+        flow_id: &str,
+    ) -> Result<(), TokenError>;
 
     async fn update(
         &self,
@@ -254,6 +271,7 @@ impl TokenManager for JwtTokenManager {
         participant_context: &ParticipantContext,
         subject: &str,
         claims: HashMap<String, String>,
+        flow_id: String,
     ) -> Result<RenewableTokenPair, TokenError> {
         // Validate server secret meets minimum security requirements
         Self::validate_server_secret(&self.server_secret)?;
@@ -280,6 +298,7 @@ impl TokenManager for JwtTokenManager {
             expires_at,
             subject: subject.to_string(),
             claims, // Move instead of clone
+            flow_id,
         };
 
         self.token_store.save(participant_context, entry).await?;
@@ -346,6 +365,7 @@ impl TokenManager for JwtTokenManager {
             expires_at: new_expires_at,
             subject: entry.subject, // Move instead of clone
             claims: entry.claims,   // Move instead of clone
+            flow_id: entry.flow_id, // Move instead of clone
         };
 
         self.token_store.update(participant_context, &hashed, new_entry).await?;

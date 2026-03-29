@@ -206,7 +206,7 @@ async fn test_weak_server_secret_rejected() {
         .build();
 
     let pc = ParticipantContext::builder().id("test_participant").build();
-    let result = manager.generate_pair(&pc, "test_subject", HashMap::new()).await;
+    let result = manager.generate_pair(&pc, "test_subject", HashMap::new(), "test_flow".to_string()).await;
 
     assert!(result.is_err(), "Should reject weak server secret");
     match result.unwrap_err() {
@@ -237,7 +237,7 @@ async fn test_empty_server_secret_rejected() {
         .build();
 
     let pc = ParticipantContext::builder().id("test_participant").build();
-    let result = manager.generate_pair(&pc, "test_subject", HashMap::new()).await;
+    let result = manager.generate_pair(&pc, "test_subject", HashMap::new(), "test_flow".to_string()).await;
 
     assert!(result.is_err(), "Should reject empty server secret");
     match result.unwrap_err() {
@@ -268,7 +268,7 @@ async fn test_valid_server_secret_accepted() {
         .build();
 
     let pc = ParticipantContext::builder().id("test_participant").build();
-    let result = manager.generate_pair(&pc, "test_subject", HashMap::new()).await;
+    let result = manager.generate_pair(&pc, "test_subject", HashMap::new(), "test_flow".to_string()).await;
 
     assert!(result.is_ok(), "Should accept valid 32-byte server secret");
 }
@@ -284,7 +284,7 @@ async fn test_reserved_claim_iss_rejected() {
     let mut claims = HashMap::new();
     claims.insert("iss".to_string(), "custom_issuer".to_string());
 
-    let result = manager.generate_pair(&pc, "test_subject", claims).await;
+    let result = manager.generate_pair(&pc, "test_subject", claims, "test_flow".to_string()).await;
 
     assert!(result.is_err(), "Should reject custom claim 'iss'");
     match result.unwrap_err() {
@@ -310,7 +310,7 @@ async fn test_reserved_claim_sub_rejected() {
     let mut claims = HashMap::new();
     claims.insert("sub".to_string(), "custom_subject".to_string());
 
-    let result = manager.generate_pair(&pc, "test_subject", claims).await;
+    let result = manager.generate_pair(&pc, "test_subject", claims, "test_flow".to_string()).await;
 
     assert!(result.is_err(), "Should reject custom claim 'sub'");
     match result.unwrap_err() {
@@ -332,7 +332,7 @@ async fn test_reserved_claim_jti_rejected() {
     let mut claims = HashMap::new();
     claims.insert("jti".to_string(), "custom_jti".to_string());
 
-    let result = manager.generate_pair(&pc, "test_subject", claims).await;
+    let result = manager.generate_pair(&pc, "test_subject", claims, "test_flow".to_string()).await;
 
     assert!(result.is_err(), "Should reject custom claim 'jti'");
     match result.unwrap_err() {
@@ -354,19 +354,19 @@ async fn test_reserved_claims_exp_iat_nbf_rejected() {
     // Test exp
     let mut claims = HashMap::new();
     claims.insert("exp".to_string(), "123456789".to_string());
-    let result = manager.generate_pair(&pc, "test_subject", claims).await;
+    let result = manager.generate_pair(&pc, "test_subject", claims, "test_flow".to_string()).await;
     assert!(result.is_err(), "Should reject custom claim 'exp'");
 
     // Test iat
     let mut claims = HashMap::new();
     claims.insert("iat".to_string(), "123456789".to_string());
-    let result = manager.generate_pair(&pc, "test_subject", claims).await;
+    let result = manager.generate_pair(&pc, "test_subject", claims, "test_flow".to_string()).await;
     assert!(result.is_err(), "Should reject custom claim 'iat'");
 
     // Test nbf
     let mut claims = HashMap::new();
     claims.insert("nbf".to_string(), "123456789".to_string());
-    let result = manager.generate_pair(&pc, "test_subject", claims).await;
+    let result = manager.generate_pair(&pc, "test_subject", claims, "test_flow".to_string()).await;
     assert!(result.is_err(), "Should reject custom claim 'nbf'");
 }
 
@@ -383,7 +383,7 @@ async fn test_non_reserved_custom_claims_accepted() {
     claims.insert("custom_field2".to_string(), "value2".to_string());
     claims.insert("role".to_string(), "admin".to_string());
 
-    let result = manager.generate_pair(&pc, "test_subject", claims).await;
+    let result = manager.generate_pair(&pc, "test_subject", claims, "test_flow".to_string()).await;
 
     assert!(result.is_ok(), "Should accept non-reserved custom claims");
 }

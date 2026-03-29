@@ -33,6 +33,7 @@ impl TokenManager for MockTokenManager {
         _participant_context: &ParticipantContext,
         _subject: &str,
         _claims: HashMap<String, String>,
+        _flow_id: String,
     ) -> Result<RenewableTokenPair, TokenError> {
         Ok(RenewableTokenPair::builder()
             .token("mock_token".to_string())

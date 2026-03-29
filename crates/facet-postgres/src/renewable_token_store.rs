@@ -83,6 +83,7 @@ impl PostgresRenewableTokenStore {
                 expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
                 subject VARCHAR(255) NOT NULL,
                 claims JSONB NOT NULL,
+                flow_id VARCHAR(255) NOT NULL,
                 PRIMARY KEY (participant_context, id)
             )",
         )
@@ -114,6 +115,14 @@ impl PostgresRenewableTokenStore {
         .await
         .map_err(|e| TokenError::database_error(format!("Failed to create expires_at index: {}", e)))?;
 
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_renewable_tokens_flow_id
+             ON renewable_tokens(participant_context, flow_id)",
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| TokenError::database_error(format!("Failed to create flow_id index: {}", e)))?;
+
         tx.commit()
             .await
             .map_err(|e| TokenError::database_error(format!("Failed to commit transaction: {}", e)))?;
@@ -133,15 +142,16 @@ impl RenewableTokenStore for PostgresRenewableTokenStore {
             .map_err(|e| TokenError::database_error(format!("Failed to serialize claims: {}", e)))?;
 
         sqlx::query(
-            "INSERT INTO renewable_tokens (participant_context, id, token, hashed_refresh_token, expires_at, subject, claims)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
+            "INSERT INTO renewable_tokens (participant_context, id, token, hashed_refresh_token, expires_at, subject, claims, flow_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
              ON CONFLICT (participant_context, id)
              DO UPDATE SET
                 token = EXCLUDED.token,
                 hashed_refresh_token = EXCLUDED.hashed_refresh_token,
                 expires_at = EXCLUDED.expires_at,
                 subject = EXCLUDED.subject,
-                claims = EXCLUDED.claims",
+                claims = EXCLUDED.claims,
+                flow_id = EXCLUDED.flow_id",
         )
         .bind(&participant_context.id)
         .bind(&entry.id)
@@ -150,6 +160,7 @@ impl RenewableTokenStore for PostgresRenewableTokenStore {
         .bind(entry.expires_at)
         .bind(&entry.subject)
         .bind(claims_json)
+        .bind(&entry.flow_id)
         .execute(&self.pool)
         .await
         .map_err(|e| TokenError::database_error(format!("Failed to save renewable token: {}", e)))?;
@@ -163,7 +174,7 @@ impl RenewableTokenStore for PostgresRenewableTokenStore {
         hash: &str,
     ) -> Result<RenewableTokenEntry, TokenError> {
         let record: RenewableTokenRecord = sqlx::query_as(
-            "SELECT participant_context, id, token, hashed_refresh_token, expires_at, subject, claims
+            "SELECT participant_context, id, token, hashed_refresh_token, expires_at, subject, claims, flow_id
              FROM renewable_tokens
              WHERE participant_context = $1 AND hashed_refresh_token = $2",
         )
@@ -189,6 +200,7 @@ impl RenewableTokenStore for PostgresRenewableTokenStore {
             expires_at: record.expires_at,
             subject: record.subject,
             claims,
+            flow_id: record.flow_id,
         })
     }
 
@@ -198,7 +210,7 @@ impl RenewableTokenStore for PostgresRenewableTokenStore {
         id: &str,
     ) -> Result<RenewableTokenEntry, TokenError> {
         let record: RenewableTokenRecord = sqlx::query_as(
-            "SELECT participant_context, id, token, hashed_refresh_token, expires_at, subject, claims
+            "SELECT participant_context, id, token, hashed_refresh_token, expires_at, subject, claims, flow_id
              FROM renewable_tokens
              WHERE participant_context = $1 AND id = $2",
         )
@@ -224,6 +236,7 @@ impl RenewableTokenStore for PostgresRenewableTokenStore {
             expires_at: record.expires_at,
             subject: record.subject,
             claims,
+            flow_id: record.flow_id,
         })
     }
 
@@ -243,7 +256,8 @@ impl RenewableTokenStore for PostgresRenewableTokenStore {
                 hashed_refresh_token = $5,
                 expires_at = $6,
                 subject = $7,
-                claims = $8
+                claims = $8,
+                flow_id = $9
              WHERE participant_context = $1 AND hashed_refresh_token = $2",
         )
         .bind(&participant_context.id)
@@ -254,6 +268,7 @@ impl RenewableTokenStore for PostgresRenewableTokenStore {
         .bind(new_entry.expires_at)
         .bind(&new_entry.subject)
         .bind(claims_json)
+        .bind(&new_entry.flow_id)
         .execute(&self.pool)
         .await
         .map_err(|e| TokenError::database_error(format!("Failed to update renewable token: {}", e)))?
@@ -261,6 +276,65 @@ impl RenewableTokenStore for PostgresRenewableTokenStore {
 
         if rows_affected == 0 {
             return Err(TokenError::token_not_found(old_hash));
+        }
+
+        Ok(())
+    }
+
+    async fn find_by_flow_id(
+        &self,
+        participant_context: &ParticipantContext,
+        flow_id: &str,
+    ) -> Result<RenewableTokenEntry, TokenError> {
+        let record: RenewableTokenRecord = sqlx::query_as(
+            "SELECT participant_context, id, token, hashed_refresh_token, expires_at, subject, claims, flow_id
+             FROM renewable_tokens
+             WHERE participant_context = $1 AND flow_id = $2",
+        )
+        .bind(&participant_context.id)
+        .bind(flow_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| TokenError::database_error(format!("Failed to fetch token by flow_id: {}", e)))?
+        .ok_or_else(|| TokenError::token_not_found(flow_id))?;
+
+        // Verify the participant context matches (defense in depth)
+        if record.participant_context != participant_context.id {
+            return Err(TokenError::token_not_found(flow_id));
+        }
+
+        let claims: HashMap<String, String> = serde_json::from_value(record.claims)
+            .map_err(|e| TokenError::database_error(format!("Failed to deserialize claims: {}", e)))?;
+
+        Ok(RenewableTokenEntry {
+            id: record.id,
+            token: record.token,
+            hashed_refresh_token: record.hashed_refresh_token,
+            expires_at: record.expires_at,
+            subject: record.subject,
+            claims,
+            flow_id: record.flow_id,
+        })
+    }
+
+    async fn delete_by_flow_id(
+        &self,
+        participant_context: &ParticipantContext,
+        flow_id: &str,
+    ) -> Result<(), TokenError> {
+        let rows_affected = sqlx::query(
+            "DELETE FROM renewable_tokens
+             WHERE participant_context = $1 AND flow_id = $2",
+        )
+        .bind(&participant_context.id)
+        .bind(flow_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| TokenError::database_error(format!("Failed to delete token by flow_id: {}", e)))?
+        .rows_affected();
+
+        if rows_affected == 0 {
+            return Err(TokenError::token_not_found(flow_id));
         }
 
         Ok(())
@@ -276,4 +350,5 @@ struct RenewableTokenRecord {
     expires_at: DateTime<Utc>,
     subject: String,
     claims: serde_json::Value,
+    flow_id: String,
 }
