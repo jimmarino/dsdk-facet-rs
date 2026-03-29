@@ -25,10 +25,14 @@ use dataplane_sdk::core::{
     },
 };
 use dsdk_facet_core::context::ParticipantContext;
+use dsdk_facet_core::token::TokenError;
 use dsdk_facet_core::token::client::{TokenData, TokenStore};
 use dsdk_facet_core::token::manager::{RenewableTokenPair, TokenManager};
 use std::collections::HashMap;
 use std::sync::Arc;
+
+#[cfg(test)]
+mod tests;
 
 /// DataFlowHandler implementation for Siglet
 #[derive(Clone, Builder)]
@@ -200,9 +204,18 @@ impl DataFlowHandler for SigletDataFlowHandler {
         Ok(response)
     }
 
-    async fn on_terminate(&self, _tx: &mut Self::Transaction, _flow: &DataFlow) -> HandlerResult<()> {
-        // TODO: Revoke tokens
-        Ok(())
+    async fn on_terminate(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<()> {
+        // TODO only revoke if this data plane is the token source, otherwise remove from the cache
+        let participant_context = ParticipantContext::builder()
+            .id(flow.participant_context_id.clone())
+            .identifier(flow.participant_id.clone())
+            .build();
+
+        match self.token_manager.revoke_token(&participant_context, &flow.id).await {
+            Ok(_) => Ok(()),
+            Err(TokenError::TokenNotFound { .. }) => Ok(()), // Ignore NotFound errors
+            Err(e) => Err(HandlerError::Generic(format!("Failed to revoke token: {}", e).into())),
+        }
     }
 
     async fn on_started(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<()> {
@@ -251,12 +264,17 @@ impl DataFlowHandler for SigletDataFlowHandler {
         Ok(())
     }
 
-    async fn on_suspend(&self, _tx: &mut Self::Transaction, _flow: &DataFlow) -> HandlerResult<()> {
-        // TODO: Handle suspend event
-        // TODO on consumer, revoke token
-        Ok(())
+    async fn on_suspend(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<()> {
+        // TODO only revoke if this data plane is the token source, otherwise remove from the cache
+        let participant_context = ParticipantContext::builder()
+            .id(flow.participant_context_id.clone())
+            .identifier(flow.participant_id.clone())
+            .build();
+
+        match self.token_manager.revoke_token(&participant_context, &flow.id).await {
+            Ok(_) => Ok(()),
+            Err(TokenError::TokenNotFound { .. }) => Ok(()), // Ignore NotFound errors
+            Err(e) => Err(HandlerError::Generic(format!("Failed to revoke token: {}", e).into())),
+        }
     }
 }
-
-#[cfg(test)]
-mod tests;

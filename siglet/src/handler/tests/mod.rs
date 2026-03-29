@@ -424,3 +424,211 @@ async fn test_on_prepare_skips_token_for_none_token_source() {
     // Verify no data address is present
     assert!(response.data_address.is_none());
 }
+
+#[tokio::test]
+async fn test_on_terminate_revokes_token_successfully() {
+    use dataplane_sdk::core::db::memory::MemoryContext;
+    use dataplane_sdk::core::db::tx::TransactionalContext;
+    use std::sync::Mutex;
+
+    // Track if revoke_token was called
+    let revoke_called = Arc::new(Mutex::new(false));
+    let revoke_called_clone = revoke_called.clone();
+
+    struct TrackingTokenManager {
+        revoke_called: Arc<Mutex<bool>>,
+    }
+
+    #[async_trait::async_trait]
+    impl TokenManager for TrackingTokenManager {
+        async fn generate_pair(
+            &self,
+            _participant_context: &ParticipantContext,
+            _subject: &str,
+            _claims: HashMap<String, String>,
+            _flow_id: String,
+        ) -> Result<RenewableTokenPair, TokenError> {
+            Ok(RenewableTokenPair::builder()
+                .token("mock_token".to_string())
+                .refresh_token("mock_refresh_token".to_string())
+                .expires_at(chrono::Utc::now() + chrono::Duration::hours(1))
+                .refresh_endpoint("https://mock.endpoint/refresh".to_string())
+                .build())
+        }
+
+        async fn renew(
+            &self,
+            _participant_context: &ParticipantContext,
+            _bound_token: &str,
+            _refresh_token: &str,
+        ) -> Result<RenewableTokenPair, TokenError> {
+            Ok(RenewableTokenPair::builder()
+                .token("mock_renewed_token".to_string())
+                .refresh_token("mock_new_refresh_token".to_string())
+                .expires_at(chrono::Utc::now() + chrono::Duration::hours(1))
+                .refresh_endpoint("https://mock.endpoint/refresh".to_string())
+                .build())
+        }
+
+        async fn revoke_token(
+            &self,
+            _participant_context: &ParticipantContext,
+            _flow_id: &str,
+        ) -> Result<(), TokenError> {
+            *self.revoke_called.lock().unwrap() = true;
+            Ok(())
+        }
+    }
+
+    let token_store = Arc::new(MemoryTokenStore::new());
+    let token_manager = Arc::new(TrackingTokenManager {
+        revoke_called: revoke_called_clone,
+    });
+    let handler = SigletDataFlowHandler::builder()
+        .token_store(token_store)
+        .token_manager(token_manager)
+        .dataplane_id("test-dataplane")
+        .build();
+
+    let flow = create_test_flow("flow-1", "participant-1", "http-pull");
+
+    let context = MemoryContext;
+    let mut tx = context.begin().await.unwrap();
+
+    let result = handler.on_terminate(&mut tx, &flow).await;
+    assert!(result.is_ok());
+
+    // Verify revoke_token was called
+    assert!(*revoke_called.lock().unwrap());
+}
+
+#[tokio::test]
+async fn test_on_terminate_ignores_token_not_found_error() {
+    use dataplane_sdk::core::db::memory::MemoryContext;
+    use dataplane_sdk::core::db::tx::TransactionalContext;
+
+    struct NotFoundTokenManager;
+
+    #[async_trait::async_trait]
+    impl TokenManager for NotFoundTokenManager {
+        async fn generate_pair(
+            &self,
+            _participant_context: &ParticipantContext,
+            _subject: &str,
+            _claims: HashMap<String, String>,
+            _flow_id: String,
+        ) -> Result<RenewableTokenPair, TokenError> {
+            Ok(RenewableTokenPair::builder()
+                .token("mock_token".to_string())
+                .refresh_token("mock_refresh_token".to_string())
+                .expires_at(chrono::Utc::now() + chrono::Duration::hours(1))
+                .refresh_endpoint("https://mock.endpoint/refresh".to_string())
+                .build())
+        }
+
+        async fn renew(
+            &self,
+            _participant_context: &ParticipantContext,
+            _bound_token: &str,
+            _refresh_token: &str,
+        ) -> Result<RenewableTokenPair, TokenError> {
+            Ok(RenewableTokenPair::builder()
+                .token("mock_renewed_token".to_string())
+                .refresh_token("mock_new_refresh_token".to_string())
+                .expires_at(chrono::Utc::now() + chrono::Duration::hours(1))
+                .refresh_endpoint("https://mock.endpoint/refresh".to_string())
+                .build())
+        }
+
+        async fn revoke_token(
+            &self,
+            _participant_context: &ParticipantContext,
+            flow_id: &str,
+        ) -> Result<(), TokenError> {
+            Err(TokenError::token_not_found(flow_id))
+        }
+    }
+
+    let token_store = Arc::new(MemoryTokenStore::new());
+    let token_manager = Arc::new(NotFoundTokenManager);
+    let handler = SigletDataFlowHandler::builder()
+        .token_store(token_store)
+        .token_manager(token_manager)
+        .dataplane_id("test-dataplane")
+        .build();
+
+    let flow = create_test_flow("flow-1", "participant-1", "http-pull");
+
+    let context = MemoryContext;
+    let mut tx = context.begin().await.unwrap();
+
+    // Should succeed even though token was not found
+    let result = handler.on_terminate(&mut tx, &flow).await;
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn test_on_terminate_propagates_other_errors() {
+    use dataplane_sdk::core::db::memory::MemoryContext;
+    use dataplane_sdk::core::db::tx::TransactionalContext;
+
+    struct ErrorTokenManager;
+
+    #[async_trait::async_trait]
+    impl TokenManager for ErrorTokenManager {
+        async fn generate_pair(
+            &self,
+            _participant_context: &ParticipantContext,
+            _subject: &str,
+            _claims: HashMap<String, String>,
+            _flow_id: String,
+        ) -> Result<RenewableTokenPair, TokenError> {
+            Ok(RenewableTokenPair::builder()
+                .token("mock_token".to_string())
+                .refresh_token("mock_refresh_token".to_string())
+                .expires_at(chrono::Utc::now() + chrono::Duration::hours(1))
+                .refresh_endpoint("https://mock.endpoint/refresh".to_string())
+                .build())
+        }
+
+        async fn renew(
+            &self,
+            _participant_context: &ParticipantContext,
+            _bound_token: &str,
+            _refresh_token: &str,
+        ) -> Result<RenewableTokenPair, TokenError> {
+            Ok(RenewableTokenPair::builder()
+                .token("mock_renewed_token".to_string())
+                .refresh_token("mock_new_refresh_token".to_string())
+                .expires_at(chrono::Utc::now() + chrono::Duration::hours(1))
+                .refresh_endpoint("https://mock.endpoint/refresh".to_string())
+                .build())
+        }
+
+        async fn revoke_token(
+            &self,
+            _participant_context: &ParticipantContext,
+            _flow_id: &str,
+        ) -> Result<(), TokenError> {
+            Err(TokenError::database_error("Database connection failed"))
+        }
+    }
+
+    let token_store = Arc::new(MemoryTokenStore::new());
+    let token_manager = Arc::new(ErrorTokenManager);
+    let handler = SigletDataFlowHandler::builder()
+        .token_store(token_store)
+        .token_manager(token_manager)
+        .dataplane_id("test-dataplane")
+        .build();
+
+    let flow = create_test_flow("flow-1", "participant-1", "http-pull");
+
+    let context = MemoryContext;
+    let mut tx = context.begin().await.unwrap();
+
+    // Should fail with the database error
+    let result = handler.on_terminate(&mut tx, &flow).await;
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("Failed to revoke token"));
+}
