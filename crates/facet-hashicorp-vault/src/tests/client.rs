@@ -11,8 +11,7 @@
 //
 
 use crate::auth::VaultAuthClient;
-use crate::client::HashicorpVaultClient;
-use crate::config::{ErrorCallback, HashicorpVaultConfig, VaultAuthConfig};
+use crate::config::ErrorCallback;
 use crate::renewal::TokenRenewer;
 use crate::state::VaultClientState;
 use async_trait::async_trait;

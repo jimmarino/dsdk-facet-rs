@@ -12,6 +12,7 @@
 
 #![allow(clippy::unwrap_used)]
 mod common;
+pub mod did;
 mod local;
 mod signing_key_record;
 mod vault_jwt_generator;
