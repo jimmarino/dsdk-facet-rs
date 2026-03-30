@@ -25,6 +25,7 @@ tokio = { workspace = true }
 reqwest = { workspace = true }
 log = { workspace = true }
 base64 = { workspace = true }
+bs58 = { workspace = true }
 sha2 = { workspace = true }
 hmac = { workspace = true }
 uuid = { workspace = true }
