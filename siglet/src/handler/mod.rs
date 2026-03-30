@@ -128,6 +128,28 @@ impl SigletDataFlowHandler {
 
         Ok(Some(pair))
     }
+
+    async fn cleanup_tokens(
+        &self,
+        flow: &&DataFlow,
+        participant_context: &ParticipantContext,
+    ) -> Result<HandlerResult<()>, HandlerError> {
+        // TODO only revoke if this data plane is the token source, otherwise remove from the cache
+        Ok(
+            match self.token_manager.revoke_token(participant_context, &flow.id).await {
+                Ok(_) => Ok(()),
+                Err(TokenError::TokenNotFound { .. }) => {
+                    // Ignore NotFound errors
+                    self.token_store
+                        .remove_token(participant_context.id.as_str(), flow.id.as_str())
+                        .await
+                        .map_err(|e| HandlerError::Generic(format!("Failed to remove token: {}", e).into()))?;
+                    Ok(())
+                }
+                Err(e) => Err(HandlerError::Generic(format!("Failed to revoke token: {}", e).into())),
+            },
+        )
+    }
 }
 
 #[async_trait::async_trait]
@@ -205,17 +227,11 @@ impl DataFlowHandler for SigletDataFlowHandler {
     }
 
     async fn on_terminate(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<()> {
-        // TODO only revoke if this data plane is the token source, otherwise remove from the cache
         let participant_context = ParticipantContext::builder()
             .id(flow.participant_context_id.clone())
             .identifier(flow.participant_id.clone())
             .build();
-
-        match self.token_manager.revoke_token(&participant_context, &flow.id).await {
-            Ok(_) => Ok(()),
-            Err(TokenError::TokenNotFound { .. }) => Ok(()), // Ignore NotFound errors
-            Err(e) => Err(HandlerError::Generic(format!("Failed to revoke token: {}", e).into())),
-        }
+        self.cleanup_tokens(&flow, &participant_context).await?
     }
 
     async fn on_started(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<()> {
@@ -271,10 +287,6 @@ impl DataFlowHandler for SigletDataFlowHandler {
             .identifier(flow.participant_id.clone())
             .build();
 
-        match self.token_manager.revoke_token(&participant_context, &flow.id).await {
-            Ok(_) => Ok(()),
-            Err(TokenError::TokenNotFound { .. }) => Ok(()), // Ignore NotFound errors
-            Err(e) => Err(HandlerError::Generic(format!("Failed to revoke token: {}", e).into())),
-        }
+        self.cleanup_tokens(&flow, &participant_context).await?
     }
 }

@@ -17,7 +17,7 @@ use crate::handler::SigletDataFlowHandler;
 use dataplane_sdk::core::handler::DataFlowHandler;
 use dataplane_sdk::core::model::data_flow::DataFlow;
 use dsdk_facet_core::context::ParticipantContext;
-use dsdk_facet_core::token::client::MemoryTokenStore;
+use dsdk_facet_core::token::client::{MemoryTokenStore, TokenStore};
 use dsdk_facet_core::token::manager::{RenewableTokenPair, TokenManager};
 use dsdk_facet_core::token::TokenError;
 use std::collections::HashMap;
@@ -506,6 +506,7 @@ async fn test_on_terminate_revokes_token_successfully() {
 async fn test_on_terminate_ignores_token_not_found_error() {
     use dataplane_sdk::core::db::memory::MemoryContext;
     use dataplane_sdk::core::db::tx::TransactionalContext;
+    use dsdk_facet_core::token::client::TokenData;
 
     struct NotFoundTokenManager;
 
@@ -551,8 +552,21 @@ async fn test_on_terminate_ignores_token_not_found_error() {
 
     let token_store = Arc::new(MemoryTokenStore::new());
     let token_manager = Arc::new(NotFoundTokenManager);
+
+    // Add a token to the store so that remove_token succeeds when cleanup_tokens is called
+    // Note: use participant_context_id from the flow, not participant_id
+    let token_data = TokenData {
+        identifier: "flow-1".to_string(),
+        participant_context: "context-1".to_string(), // Match flow.participant_context_id
+        token: "test_token".to_string(),
+        refresh_token: "test_refresh".to_string(),
+        expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
+        refresh_endpoint: "https://test.endpoint/refresh".to_string(),
+    };
+    token_store.save_token(token_data).await.unwrap();
+
     let handler = SigletDataFlowHandler::builder()
-        .token_store(token_store)
+        .token_store(token_store.clone())
         .token_manager(token_manager)
         .dataplane_id("test-dataplane")
         .build();
@@ -562,9 +576,14 @@ async fn test_on_terminate_ignores_token_not_found_error() {
     let context = MemoryContext;
     let mut tx = context.begin().await.unwrap();
 
-    // Should succeed even though token was not found
+    // Should succeed: token manager returns NotFound, but token is removed from store
     let result = handler.on_terminate(&mut tx, &flow).await;
     assert!(result.is_ok());
+
+    // Verify token was removed from store
+    let participant_ctx = ParticipantContext::builder().id("context-1").build();
+    let token_result = token_store.get_token(&participant_ctx, "flow-1").await;
+    assert!(token_result.is_err());
 }
 
 #[tokio::test]
