@@ -131,7 +131,7 @@ impl SigletDataFlowHandler {
 
     async fn cleanup_tokens(
         &self,
-        flow: &&DataFlow,
+        flow: &DataFlow,
         participant_context: &ParticipantContext,
     ) -> Result<HandlerResult<()>, HandlerError> {
         // TODO only revoke if this data plane is the token source, otherwise remove from the cache
@@ -150,6 +150,17 @@ impl SigletDataFlowHandler {
             },
         )
     }
+
+    /// Extracts a ParticipantContext from a DataFlow
+    ///
+    /// This helper reduces duplication across handler methods that need
+    /// to create participant context from flow data.
+    fn build_participant_context(flow: &DataFlow) -> ParticipantContext {
+        ParticipantContext::builder()
+            .id(flow.participant_context_id.clone())
+            .identifier(flow.participant_id.clone())
+            .build()
+    }
 }
 
 #[async_trait::async_trait]
@@ -161,10 +172,7 @@ impl DataFlowHandler for SigletDataFlowHandler {
     }
 
     async fn on_start(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<DataFlowResponseMessage> {
-        let participant_context = ParticipantContext::builder()
-            .id(flow.participant_context_id.clone())
-            .identifier(flow.participant_id.clone())
-            .build();
+        let participant_context = Self::build_participant_context(flow);
 
         let transfer_type_config = self.transfer_type_mappings.get(&flow.transfer_type).ok_or_else(|| {
             HandlerError::Generic(format!("Unsupported transfer type: {}", flow.transfer_type).into())
@@ -189,10 +197,7 @@ impl DataFlowHandler for SigletDataFlowHandler {
     }
 
     async fn on_prepare(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<DataFlowResponseMessage> {
-        let participant_context = ParticipantContext::builder()
-            .id(flow.participant_context_id.clone())
-            .identifier(flow.participant_id.clone())
-            .build();
+        let participant_context = Self::build_participant_context(flow);
 
         let transfer_type_config = self.transfer_type_mappings.get(&flow.transfer_type).ok_or_else(|| {
             HandlerError::Generic(format!("Unsupported transfer type: {}", flow.transfer_type).into())
@@ -203,35 +208,40 @@ impl DataFlowHandler for SigletDataFlowHandler {
             .generate_client_token_if_needed(&participant_context, transfer_type_config, flow)
             .await?;
 
-        let response = if let Some(pair) = maybe_token_pair {
+        // Transform token pair into data address if present
+        let data_address = maybe_token_pair.map(|pair| {
             let endpoint_properties = Self::create_auth_properties(&pair);
-
-            let data_address = DataAddress::builder()
+            DataAddress::builder()
                 .endpoint_type(&transfer_type_config.endpoint_type)
                 .endpoint_properties(endpoint_properties)
-                .build();
+                .build()
+        });
 
-            DataFlowResponseMessage::builder()
-                .dataplane_id(self.dataplane_id.clone())
-                .state(DataFlowState::Prepared)
-                .data_address(data_address)
-                .build()
-        } else {
-            DataFlowResponseMessage::builder()
-                .dataplane_id(self.dataplane_id.clone())
-                .state(DataFlowState::Prepared)
-                .build()
-        };
+        // Build response, using map_or to handle both cases without duplication
+        let response = data_address.map_or_else(
+            || {
+                // No data address - build without it
+                DataFlowResponseMessage::builder()
+                    .dataplane_id(self.dataplane_id.clone())
+                    .state(DataFlowState::Prepared)
+                    .build()
+            },
+            |addr| {
+                // With data address - include it
+                DataFlowResponseMessage::builder()
+                    .dataplane_id(self.dataplane_id.clone())
+                    .state(DataFlowState::Prepared)
+                    .data_address(addr)
+                    .build()
+            },
+        );
 
         Ok(response)
     }
 
     async fn on_terminate(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<()> {
-        let participant_context = ParticipantContext::builder()
-            .id(flow.participant_context_id.clone())
-            .identifier(flow.participant_id.clone())
-            .build();
-        self.cleanup_tokens(&flow, &participant_context).await?
+        let participant_context = Self::build_participant_context(flow);
+        self.cleanup_tokens(flow, &participant_context).await?
     }
 
     async fn on_started(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<()> {
@@ -282,11 +292,7 @@ impl DataFlowHandler for SigletDataFlowHandler {
 
     async fn on_suspend(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<()> {
         // TODO only revoke if this data plane is the token source, otherwise remove from the cache
-        let participant_context = ParticipantContext::builder()
-            .id(flow.participant_context_id.clone())
-            .identifier(flow.participant_id.clone())
-            .build();
-
-        self.cleanup_tokens(&flow, &participant_context).await?
+        let participant_context = Self::build_participant_context(flow);
+        self.cleanup_tokens(flow, &participant_context).await?
     }
 }

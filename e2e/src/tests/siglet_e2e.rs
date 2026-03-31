@@ -19,15 +19,252 @@
 
 use crate::utils::*;
 use anyhow::{Context, Result};
+use dsdk_facet_testcontainers::utils::get_available_port;
+use reqwest::Client;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 
 /// Shared Siglet deployment state
 static SIGLET_DEPLOYMENT: OnceCell<Arc<SigletDeployment>> = OnceCell::const_new();
 
+/// Test that Siglet deploys successfully and responds to health checks
+#[tokio::test]
+#[ignore]
+async fn test_siglet_deployment_and_health() -> Result<()> {
+    let deployment = ensure_siglet_deployed().await?;
+    let pod_name = &deployment.pod_name;
+
+    // Test health endpoint using kubectl exec
+    let health_response = kubectl_exec(
+        E2E_NAMESPACE,
+        pod_name,
+        "siglet",
+        &["wget", "-q", "-O-", "http://localhost:8080/health"],
+    )?;
+
+    // Verify health response contains expected status
+    assert!(
+        health_response.contains("healthy"),
+        "Health endpoint should return healthy status"
+    );
+
+    // Test root endpoint
+    let root_response = kubectl_exec(
+        E2E_NAMESPACE,
+        pod_name,
+        "siglet",
+        &["wget", "-q", "-O-", "http://localhost:8080/"],
+    )?;
+
+    // Verify root response contains expected metadata
+    assert!(
+        root_response.contains("Siglet"),
+        "Root endpoint should return Siglet metadata"
+    );
+    assert!(root_response.contains("version"), "Root endpoint should return version");
+    assert!(
+        root_response.contains("running"),
+        "Root endpoint should indicate running status"
+    );
+
+    let logs = get_pod_logs(E2E_NAMESPACE, pod_name, "siglet")?;
+    // println!("Siglet logs:\n{}", logs);
+
+    // Verify startup messages in logs
+    assert!(logs.contains("Siglet API"), "Logs should indicate Siglet API started");
+    assert!(
+        logs.contains("Signaling API"),
+        "Logs should indicate Signaling API started"
+    );
+    assert!(logs.contains("Ready"), "Logs should indicate Siglet is ready");
+
+    Ok(())
+}
+
+/// Test Signaling API operations
+///
+/// This test verifies:
+/// - DataFlow start via Signaling API (accessed via port-forward)
+/// - DataFlow termination via Signaling API
+/// - Token generation and inclusion in response
+#[tokio::test]
+#[ignore]
+async fn test_signaling_operations() -> Result<()> {
+    let deployment = ensure_siglet_deployed().await?;
+
+    // Get the port-forwarded URL for the Signaling API
+    let signaling_url = format!("http://localhost:{}", deployment.signaling_port);
+
+    // Create HTTP client
+    let client = Client::new();
+
+    // Create a DataFlow start message
+    let start_message = serde_json::json!({
+        "datasetId": "test-dataset-123",
+        "participantId": "did:web:provider.example.com",
+        "processId": "test-process-456",
+        "dataAddress": {
+            "@type": "DataAddress",
+            "endpointType": "HTTP",
+            "endpointProperties": [
+                {
+                    "@type": "EndpointProperty",
+                    "name": "baseUrl",
+                    "value": "https://provider.example.com/data"
+                }
+            ]
+        },
+        "agreementId": "test-agreement-789",
+        "transferType": "http-pull",
+        "dataspaceContext": "test-dataspace",
+        "callbackAddress": "https://consumer.example.com/callback",
+        "messageId": "msg-001",
+        "counterPartyId": "did:web:consumer.example.com",
+        "labels": [],
+        "metadata": {}
+    });
+
+    // Call the start endpoint
+    let start_response = client
+        .post(format!("{}/api/v1/dataflows/start", signaling_url))
+        .header("Content-Type", "application/json")
+        .header("X-Participant-Id", "test-participant-context")
+        .json(&start_message)
+        .send()
+        .await
+        .context("Failed to send start request")?;
+
+    assert!(
+        start_response.status().is_success(),
+        "Start request should succeed, got status: {}",
+        start_response.status()
+    );
+
+    let start_result: serde_json::Value = start_response.json().await.context("Failed to parse start response")?;
+
+    // println!("Start response: {}", serde_json::to_string_pretty(&start_result)?);
+
+    // Verify the response contains expected fields
+    assert!(
+        start_result.get("state").is_some(),
+        "Response should contain 'state' field"
+    );
+    assert!(
+        start_result.get("dataplaneId").is_some(),
+        "Response should contain 'dataplaneId' field"
+    );
+
+    let state = start_result["state"].as_str().unwrap();
+
+    // The state should be "STARTED" for http-pull transfers with token provider
+    assert_eq!(state, "STARTED", "DataFlow should be in STARTED state");
+
+    // Check if data address was returned with auth properties
+    let data_address = start_result.get("dataAddress").unwrap();
+
+    let properties = data_address.get("endpointProperties").unwrap();
+    let properties_array = properties.as_array().unwrap();
+
+    let has_auth = properties_array
+        .iter()
+        .any(|p| p.get("name").and_then(|n| n.as_str()) == Some("authorization"));
+    assert!(has_auth, "Authorization property not found in data address");
+    // Extract the JWT token for inspection
+    let auth_prop = properties_array
+        .iter()
+        .find(|p| p.get("name").and_then(|n| n.as_str()) == Some("authorization"))
+        .unwrap();
+
+    let token = auth_prop.get("value").and_then(|v| v.as_str()).unwrap();
+    // println!("Token: {}...", &token);
+    assert!(!token.is_empty());
+
+    // Check for refresh token
+    let has_refresh = properties_array
+        .iter()
+        .any(|p| p.get("name").and_then(|n| n.as_str()) == Some("refreshToken"));
+    assert!(has_refresh, "Refresh token not found in data address");
+    // Check for refresh endpoint
+    let has_endpoint = properties_array
+        .iter()
+        .any(|p| p.get("name").and_then(|n| n.as_str()) == Some("refreshEndpoint"));
+    assert!(has_endpoint, "Refresh Endpoint not found in data address");
+
+    // Verify terminate
+    let terminate_message = serde_json::json!({
+        "reason": "Test termination"
+    });
+
+    // Use the processId from the start message as the flow ID
+    let flow_id = "test-process-456";
+
+    let terminate_response = client
+        .post(format!("{}/api/v1/dataflows/{}/terminate", signaling_url, flow_id))
+        .header("Content-Type", "application/json")
+        .header("X-Participant-Id", "test-participant-context")
+        .json(&terminate_message)
+        .send()
+        .await
+        .context("Failed to send terminate request")?;
+
+    assert!(
+        terminate_response.status().is_success(),
+        "Terminate should return 200 OK for successful termination, got: {}",
+        terminate_response.status()
+    );
+    Ok(())
+}
+
 /// Information about the deployed Siglet instance
 struct SigletDeployment {
     pod_name: String,
+    signaling_port: u16,
+}
+
+/// Sets up port forwarding for the Signaling API and returns the local port
+async fn setup_signaling_port_forward() -> Result<u16> {
+    // Get an available port on the host machine
+    let local_port = get_available_port();
+
+    // Start port-forward in background
+    let _child = std::process::Command::new("kubectl")
+        .args([
+            "port-forward",
+            "-n",
+            E2E_NAMESPACE,
+            "service/siglet",
+            &format!("{}:8081", local_port),
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .context("Failed to start port-forward")?;
+
+    // Wait for port-forward to establish
+    let client = Client::new();
+    let start = std::time::Instant::now();
+    let timeout_secs = 10;
+
+    loop {
+        if start.elapsed().as_secs() > timeout_secs {
+            anyhow::bail!(
+                "Failed to establish port-forward connection after {} seconds",
+                timeout_secs
+            );
+        }
+
+        if client
+            .get(format!("http://localhost:{}/api/v1/dataflows", local_port))
+            .timeout(tokio::time::Duration::from_secs(1))
+            .send()
+            .await
+            .is_ok()
+        {
+            return Ok(local_port);
+        }
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    }
 }
 
 /// Setup function to verify E2E environment is ready
@@ -66,7 +303,7 @@ async fn ensure_siglet_deployed() -> Result<Arc<SigletDeployment>> {
             let deployment_manifest = "manifests/siglet-deployment.yaml";
             let service_manifest = "manifests/siglet-service.yaml";
 
-            println!("Setting up Siglet deployment (one-time setup)...");
+            println!("Preparing Siglet deployment");
 
             // Clean up any existing deployment
             let _ = kubectl_delete(deployment_manifest);
@@ -77,17 +314,15 @@ async fn ensure_siglet_deployed() -> Result<Arc<SigletDeployment>> {
                 .await
                 .context("Failed to wait for previous Siglet pods to be deleted")?;
 
-            // Deploy Siglet
-            println!("Deploying Siglet");
+            // Deploy Siglet (uses Vault Agent sidecar pattern)
+            println!("Deploying Siglet with Vault Agent sidecar");
             kubectl_apply(deployment_manifest)?;
             kubectl_apply(service_manifest)?;
 
             // Wait for deployment to be ready
             println!("Waiting for Siglet to be ready");
             wait_for_deployment_ready(E2E_NAMESPACE, "siglet", 120).await?;
-
             // Wait for pod to be ready
-            println!("Waiting for Siglet pod to be ready");
             wait_for_pod_ready(E2E_NAMESPACE, "app=siglet", 120).await?;
 
             // Get pod name
@@ -108,130 +343,14 @@ async fn ensure_siglet_deployed() -> Result<Arc<SigletDeployment>> {
 
             println!("Siglet deployed: pod={}", pod_name);
 
-            Ok(Arc::new(SigletDeployment { pod_name }))
+            // Set up port-forward for Signaling API
+            let signaling_port = setup_signaling_port_forward().await?;
+
+            Ok(Arc::new(SigletDeployment {
+                pod_name,
+                signaling_port,
+            }))
         })
         .await
         .map(|arc| arc.clone())
-}
-
-/// Test that Siglet deploys successfully and responds to health checks
-#[tokio::test]
-#[ignore]
-async fn test_siglet_deployment_and_health() -> Result<()> {
-    let deployment = ensure_siglet_deployed().await?;
-    let pod_name = &deployment.pod_name;
-
-    // Test health endpoint using kubectl exec
-    println!("Testing health endpoint...");
-    let health_response = kubectl_exec(
-        E2E_NAMESPACE,
-        pod_name,
-        "siglet",
-        &["wget", "-q", "-O-", "http://localhost:8080/health"],
-    )?;
-    println!("Health response: {}", health_response);
-
-    // Verify health response contains expected status
-    assert!(
-        health_response.contains("healthy"),
-        "Health endpoint should return healthy status"
-    );
-
-    // Test root endpoint
-    println!("Testing root endpoint...");
-    let root_response = kubectl_exec(
-        E2E_NAMESPACE,
-        pod_name,
-        "siglet",
-        &["wget", "-q", "-O-", "http://localhost:8080/"],
-    )?;
-    println!("Root response: {}", root_response);
-
-    // Verify root response contains expected metadata
-    assert!(
-        root_response.contains("Siglet"),
-        "Root endpoint should return Siglet metadata"
-    );
-    assert!(root_response.contains("version"), "Root endpoint should return version");
-    assert!(
-        root_response.contains("running"),
-        "Root endpoint should indicate running status"
-    );
-
-    // Get logs to verify startup
-    println!("Retrieving Siglet logs...");
-    let logs = get_pod_logs(E2E_NAMESPACE, pod_name, "siglet")?;
-    println!("Siglet logs:\n{}", logs);
-
-    // Verify startup messages in logs
-    assert!(logs.contains("Siglet API"), "Logs should indicate Siglet API started");
-    assert!(
-        logs.contains("Signaling API"),
-        "Logs should indicate Signaling API started"
-    );
-    assert!(logs.contains("Ready"), "Logs should indicate Siglet is ready");
-
-    Ok(())
-}
-
-/// Test that Siglet's signaling API is accessible
-///
-/// This test:
-/// 1. Ensures Siglet is deployed (shared setup)
-/// 2. Verifies signaling API port is accessible
-/// 3. Confirms both API servers are running
-#[tokio::test]
-#[ignore]
-async fn test_siglet_signaling_api() -> Result<()> {
-    let deployment = ensure_siglet_deployed().await?;
-    let pod_name = &deployment.pod_name;
-
-    // Test signaling API port is listening
-    let signaling_test = kubectl_exec(
-        E2E_NAMESPACE,
-        pod_name,
-        "siglet",
-        &[
-            "sh",
-            "-c",
-            "wget -q --spider http://localhost:8081/dataflows || echo 'signaling api accessible'",
-        ],
-    );
-
-    // We expect this to either succeed or fail with specific HTTP codes, not connection refused
-    // The signaling API might return 404 or 405 for GET requests on /dataflows, which is fine
-    println!("Signaling API test result: {:?}", signaling_test);
-
-    // Get logs to verify both APIs are running
-    println!("Retrieving Siglet logs...");
-    let logs = get_pod_logs(E2E_NAMESPACE, pod_name, "siglet")?;
-    println!("Siglet logs:\n{}", logs);
-
-    // Verify both API servers started
-    assert!(
-        logs.contains("Siglet API 0.0.0.0:8080"),
-        "Logs should show Siglet API started on port 8080"
-    );
-    assert!(
-        logs.contains("Signaling API 0.0.0.0:8081"),
-        "Logs should show Signaling API started on port 8081"
-    );
-
-    Ok(())
-}
-
-/// Test Siglet with token store operations
-///
-/// This test verifies:
-/// - DataFlow operations
-/// - Token Storage
-/// - Token retrieval
-/// - DataFlow termination and cleanup
-/// Note: This is currently a placeholder for future implementation
-#[tokio::test]
-#[ignore]
-async fn test_siglet_token_operations() -> Result<()> {
-    let _deployment = ensure_siglet_deployed().await?;
-    // TODO
-    Ok(())
 }

@@ -1,0 +1,655 @@
+//  Copyright (c) 2026 Metaform Systems, Inc
+//
+//  This program and the accompanying materials are made available under the
+//  terms of the Apache License, Version 2.0 which is available at
+//  https://www.apache.org/licenses/LICENSE-2.0
+//
+//  SPDX-License-Identifier: Apache-2.0
+//
+//  Contributors:
+//       Metaform Systems, Inc. - initial API and implementation
+//
+
+#![allow(clippy::unwrap_used)]
+
+use crate::config::{SigletConfig, StorageBackend, TokenSource, TransferTypes, ValidationError};
+use std::net::{IpAddr, Ipv4Addr};
+
+/// Helper function to create a valid minimal configuration
+fn create_valid_config() -> SigletConfig {
+    SigletConfig {
+        vault_url: Some("https://vault.example.com".to_string()),
+        vault_token: Some("test-token".to_string()),
+        ..Default::default()
+    }
+}
+
+/// Helper function to create a valid config with vault token file instead of token
+fn create_valid_config_with_token_file() -> SigletConfig {
+    SigletConfig {
+        vault_url: Some("https://vault.example.com".to_string()),
+        vault_token: None,
+        vault_token_file: Some("/var/run/secrets/vault-token".to_string()),
+        ..Default::default()
+    }
+}
+
+// ============================================================================
+// Valid Configuration Tests
+// ============================================================================
+
+#[test]
+fn test_valid_minimal_config() {
+    let config = create_valid_config();
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_valid_config_with_all_fields() {
+    let config = SigletConfig {
+        siglet_api_port: 8080,
+        signaling_port: 8081,
+        bind: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+        storage_backend: StorageBackend::Memory,
+        transfer_types: vec![
+            TransferTypes::builder()
+                .transfer_type("http-pull".to_string())
+                .endpoint_type("HTTP".to_string())
+                .token_source(TokenSource::Provider)
+                .build(),
+        ],
+        vault_url: Some("https://vault.example.com:8200".to_string()),
+        vault_token: Some("hvs.test-token-12345".to_string()),
+        vault_token_file: None,
+        vault_signing_key_name: "my-signing-key".to_string(),
+        token_issuer: Some("my-issuer".to_string()),
+        token_refresh_endpoint: Some("https://api.example.com/refresh".to_string()),
+        token_server_secret: Some("0123456789abcdef0123456789abcdef".to_string()), // 16 bytes
+    };
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_valid_config_with_token_file() {
+    let config = create_valid_config_with_token_file();
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_valid_config_with_both_token_and_token_file() {
+    let mut config = create_valid_config();
+    config.vault_token_file = Some("/var/run/secrets/vault-token".to_string());
+
+    // Both provided is valid (implementation will choose one)
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_valid_config_different_ports() {
+    let mut config = create_valid_config();
+    config.siglet_api_port = 9000;
+    config.signaling_port = 9001;
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_valid_config_with_multiple_transfer_types() {
+    let mut config = create_valid_config();
+    config.transfer_types = vec![
+        TransferTypes::builder()
+            .transfer_type("http-pull".to_string())
+            .endpoint_type("HTTP".to_string())
+            .token_source(TokenSource::Provider)
+            .build(),
+        TransferTypes::builder()
+            .transfer_type("http-push".to_string())
+            .endpoint_type("HTTP".to_string())
+            .token_source(TokenSource::Client)
+            .build(),
+        TransferTypes::builder()
+            .transfer_type("s3-pull".to_string())
+            .endpoint_type("S3".to_string())
+            .token_source(TokenSource::None)
+            .build(),
+    ];
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_valid_config_with_long_hex_secret() {
+    let mut config = create_valid_config();
+    // 64 hex chars = 32 bytes
+    config.token_server_secret = Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string());
+
+    assert!(config.validate().is_ok());
+}
+
+// ============================================================================
+// Vault URL Validation Tests
+// ============================================================================
+
+#[test]
+fn test_missing_vault_url() {
+    let mut config = create_valid_config();
+    config.vault_url = None;
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    assert_eq!(err.error_count(), 1);
+    assert!(err.messages().contains(&"vault_url is required"));
+}
+
+#[test]
+fn test_invalid_vault_url_format() {
+    let mut config = create_valid_config();
+    config.vault_url = Some("not-a-valid-url".to_string());
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(messages.iter().any(|msg| msg.contains("vault_url is not a valid URL")));
+}
+
+#[test]
+fn test_invalid_vault_url_missing_scheme() {
+    let mut config = create_valid_config();
+    config.vault_url = Some("vault.example.com".to_string());
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(messages.iter().any(|msg| msg.contains("vault_url is not a valid URL")));
+}
+
+#[test]
+fn test_valid_vault_url_with_port() {
+    let mut config = create_valid_config();
+    config.vault_url = Some("https://vault.example.com:8200".to_string());
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_valid_vault_url_with_path() {
+    let mut config = create_valid_config();
+    config.vault_url = Some("https://vault.example.com/v1".to_string());
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_valid_vault_url_http() {
+    let mut config = create_valid_config();
+    config.vault_url = Some("http://localhost:8200".to_string());
+
+    // HTTP is valid (though not recommended for production)
+    assert!(config.validate().is_ok());
+}
+
+// ============================================================================
+// Vault Authentication Validation Tests
+// ============================================================================
+
+#[test]
+fn test_missing_vault_authentication() {
+    let mut config = create_valid_config();
+    config.vault_token = None;
+    config.vault_token_file = None;
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(messages.contains(&"Either vault_token or vault_token_file is required"));
+}
+
+#[test]
+fn test_vault_token_provided() {
+    let mut config = create_valid_config();
+    config.vault_token = Some("test-token".to_string());
+    config.vault_token_file = None;
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_vault_token_file_provided() {
+    let config = create_valid_config_with_token_file();
+    assert!(config.validate().is_ok());
+}
+
+// ============================================================================
+// Server Secret Validation Tests
+// ============================================================================
+
+#[test]
+fn test_valid_hex_server_secret() {
+    let mut config = create_valid_config();
+    config.token_server_secret = Some("0123456789abcdef0123456789abcdef".to_string());
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_invalid_hex_server_secret() {
+    let mut config = create_valid_config();
+    config.token_server_secret = Some("not-valid-hex".to_string());
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(
+        messages
+            .iter()
+            .any(|msg| msg.contains("token_server_secret must be a valid hex-encoded string"))
+    );
+}
+
+#[test]
+fn test_empty_server_secret() {
+    let mut config = create_valid_config();
+    config.token_server_secret = Some("".to_string());
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(messages.contains(&"token_server_secret cannot be empty"));
+}
+
+#[test]
+fn test_server_secret_too_short() {
+    let mut config = create_valid_config();
+    config.token_server_secret = Some("0123456789abcdef".to_string()); // 8 bytes, less than 16
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(
+        messages
+            .iter()
+            .any(|msg| msg.contains("should be at least 32 hex characters"))
+    );
+}
+
+#[test]
+fn test_server_secret_exact_minimum() {
+    let mut config = create_valid_config();
+    config.token_server_secret = Some("0123456789abcdef0123456789abcdef".to_string()); // Exactly 16 bytes
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_server_secret_uppercase_hex() {
+    let mut config = create_valid_config();
+    config.token_server_secret = Some("0123456789ABCDEF0123456789ABCDEF".to_string());
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_server_secret_mixed_case_hex() {
+    let mut config = create_valid_config();
+    config.token_server_secret = Some("0123456789AbCdEf0123456789aBcDeF".to_string());
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_no_server_secret_is_valid() {
+    let mut config = create_valid_config();
+    config.token_server_secret = None;
+
+    // None is valid (will generate random secret)
+    assert!(config.validate().is_ok());
+}
+
+// ============================================================================
+// Port Validation Tests
+// ============================================================================
+
+#[test]
+fn test_port_conflict() {
+    let mut config = create_valid_config();
+    config.siglet_api_port = 8080;
+    config.signaling_port = 8080;
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(
+        messages
+            .iter()
+            .any(|msg| msg.contains("siglet_api_port and signaling_port cannot be the same"))
+    );
+}
+
+#[test]
+fn test_siglet_api_port_zero() {
+    let mut config = create_valid_config();
+    config.siglet_api_port = 0;
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(messages.contains(&"siglet_api_port cannot be 0"));
+}
+
+#[test]
+fn test_signaling_port_zero() {
+    let mut config = create_valid_config();
+    config.signaling_port = 0;
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(messages.contains(&"signaling_port cannot be 0"));
+}
+
+#[test]
+fn test_both_ports_zero() {
+    let mut config = create_valid_config();
+    config.siglet_api_port = 0;
+    config.signaling_port = 0;
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    // Should have 2 errors (one for each port being 0)
+    // Note: won't have "same port" error because both are 0
+    assert!(err.error_count() >= 2);
+}
+
+#[test]
+fn test_high_port_numbers_valid() {
+    let mut config = create_valid_config();
+    config.siglet_api_port = 65535;
+    config.signaling_port = 65534;
+
+    assert!(config.validate().is_ok());
+}
+
+// ============================================================================
+// Transfer Types Validation Tests
+// ============================================================================
+
+#[test]
+fn test_empty_transfer_type() {
+    let mut config = create_valid_config();
+    config.transfer_types = vec![
+        TransferTypes::builder()
+            .transfer_type("".to_string())
+            .endpoint_type("HTTP".to_string())
+            .build(),
+    ];
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(messages.iter().any(|msg| msg.contains("transfer_type cannot be empty")));
+}
+
+#[test]
+fn test_empty_endpoint_type() {
+    let mut config = create_valid_config();
+    config.transfer_types = vec![
+        TransferTypes::builder()
+            .transfer_type("http-pull".to_string())
+            .endpoint_type("".to_string())
+            .build(),
+    ];
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(messages.iter().any(|msg| msg.contains("endpoint_type cannot be empty")));
+}
+
+#[test]
+fn test_multiple_transfer_types_with_one_invalid() {
+    let mut config = create_valid_config();
+    config.transfer_types = vec![
+        TransferTypes::builder()
+            .transfer_type("http-pull".to_string())
+            .endpoint_type("HTTP".to_string())
+            .build(),
+        TransferTypes::builder()
+            .transfer_type("".to_string())
+            .endpoint_type("S3".to_string())
+            .build(),
+    ];
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(messages.iter().any(|msg| msg.contains("transfer_types[1]")));
+}
+
+#[test]
+fn test_empty_transfer_types_list_is_valid() {
+    let mut config = create_valid_config();
+    config.transfer_types = vec![];
+
+    assert!(config.validate().is_ok());
+}
+
+// ============================================================================
+// Storage Backend Validation Tests
+// ============================================================================
+
+#[test]
+fn test_memory_storage_backend_valid() {
+    let mut config = create_valid_config();
+    config.storage_backend = StorageBackend::Memory;
+
+    assert!(config.validate().is_ok());
+}
+
+// ============================================================================
+// Vault Signing Key Name Validation Tests
+// ============================================================================
+
+#[test]
+fn test_empty_vault_signing_key_name() {
+    let mut config = create_valid_config();
+    config.vault_signing_key_name = "".to_string();
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(messages.contains(&"vault_signing_key_name cannot be empty"));
+}
+
+#[test]
+fn test_valid_vault_signing_key_name() {
+    let mut config = create_valid_config();
+    config.vault_signing_key_name = "my-custom-key".to_string();
+
+    assert!(config.validate().is_ok());
+}
+
+// ============================================================================
+// Multiple Errors Tests
+// ============================================================================
+
+#[test]
+fn test_multiple_validation_errors() {
+    let mut config = SigletConfig::default();
+    config.vault_url = None; // Error 1
+    config.vault_token = None; // Error 2 (combined with vault_token_file)
+    config.vault_token_file = None;
+    config.siglet_api_port = 8080;
+    config.signaling_port = 8080; // Error 3
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    assert!(err.error_count() >= 3);
+
+    let messages = err.messages();
+    assert!(messages.contains(&"vault_url is required"));
+    assert!(messages.contains(&"Either vault_token or vault_token_file is required"));
+    assert!(messages.iter().any(|msg| msg.contains("cannot be the same")));
+}
+
+#[test]
+fn test_all_possible_errors() {
+    let config = SigletConfig {
+        siglet_api_port: 0, // Error 1
+        signaling_port: 0,  // Error 2
+        bind: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+        storage_backend: StorageBackend::Postgres, // Error 3
+        transfer_types: vec![
+            TransferTypes::builder()
+                .transfer_type("".to_string()) // Error 4
+                .endpoint_type("".to_string()) // Error 5
+                .build(),
+        ],
+        vault_url: None,   // Error 6
+        vault_token: None, // Error 7 (combined)
+        vault_token_file: None,
+        vault_signing_key_name: "".to_string(), // Error 8
+        token_issuer: None,
+        token_refresh_endpoint: None,
+        token_server_secret: Some("invalid-hex".to_string()), // Error 9
+    };
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    assert!(err.error_count() >= 9);
+}
+
+// ============================================================================
+// ValidationError Type Tests
+// ============================================================================
+
+#[test]
+fn test_validation_error_single() {
+    let err = ValidationError::single("test error");
+    assert_eq!(err.error_count(), 1);
+    assert_eq!(err.messages(), vec!["test error"]);
+}
+
+#[test]
+fn test_validation_error_multiple() {
+    let err = ValidationError::Multiple(vec![
+        "error 1".to_string(),
+        "error 2".to_string(),
+        "error 3".to_string(),
+    ]);
+    assert_eq!(err.error_count(), 3);
+    assert_eq!(err.messages(), vec!["error 1", "error 2", "error 3"]);
+}
+
+#[test]
+fn test_validation_error_display_single() {
+    let err = ValidationError::single("test error");
+    let display = format!("{}", err);
+    assert!(display.contains("Configuration validation failed: test error"));
+}
+
+#[test]
+fn test_validation_error_display_multiple() {
+    let err = ValidationError::Multiple(vec!["error 1".to_string(), "error 2".to_string()]);
+    let display = format!("{}", err);
+    assert!(display.contains("Configuration validation failed with 2 error(s)"));
+    assert!(display.contains("1. error 1"));
+    assert!(display.contains("2. error 2"));
+}
+
+#[test]
+fn test_validation_error_clone() {
+    let err = ValidationError::single("test error");
+    let cloned = err.clone();
+    assert_eq!(err, cloned);
+}
+
+// ============================================================================
+// Edge Cases and Boundary Tests
+// ============================================================================
+
+#[test]
+fn test_vault_url_with_query_params() {
+    let mut config = create_valid_config();
+    config.vault_url = Some("https://vault.example.com?namespace=admin".to_string());
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_vault_url_localhost() {
+    let mut config = create_valid_config();
+    config.vault_url = Some("http://localhost:8200".to_string());
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_vault_url_ip_address() {
+    let mut config = create_valid_config();
+    config.vault_url = Some("https://192.168.1.100:8200".to_string());
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_default_config_validation_fails() {
+    let config = SigletConfig::default();
+
+    // Default config should fail validation (missing vault_url and auth)
+    let result = config.validate();
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_config_with_whitespace_in_vault_url() {
+    let mut config = create_valid_config();
+    config.vault_url = Some(" https://vault.example.com ".to_string());
+
+    // URL parser accepts and trims whitespace, so this is valid
+    // (The URL will be trimmed when parsed)
+    let result = config.validate();
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_vault_signing_key_with_special_characters() {
+    let mut config = create_valid_config();
+    config.vault_signing_key_name = "my-key_2024.v1".to_string();
+
+    assert!(config.validate().is_ok());
+}

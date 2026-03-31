@@ -9,6 +9,9 @@ publish = false
 tokio = { workspace = true }
 anyhow = "1.0"
 base64 = { workspace = true }
+dsdk-facet-testcontainers = { path = "../crates/facet-testcontainers" }
+serde_json = { workspace = true }
+reqwest = "0.12"
 
 [dev-dependencies]
 

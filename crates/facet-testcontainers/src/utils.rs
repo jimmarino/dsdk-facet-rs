@@ -1,4 +1,13 @@
+use std::net::TcpListener;
 use testcontainers::bollard::{Docker, secret::NetworkCreateRequest};
+
+/// Get an available port by binding to port 0 and retrieving the assigned port
+pub fn get_available_port() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind to port 0");
+    let port = listener.local_addr().expect("Failed to get local address").port();
+    drop(listener);
+    port
+}
 
 /// Creates a Docker network and returns its name.
 ///

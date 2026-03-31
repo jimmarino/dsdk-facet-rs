@@ -22,12 +22,6 @@ mod proxy_s3;
 pub use mocks::*;
 #[allow(unused_imports)] // Used in some test files but not others
 pub use proxy_s3::*;
-use std::net::TcpListener;
 
-/// Get an available port by binding to port 0 and retrieving the assigned port
-pub fn get_available_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind to port 0");
-    let port = listener.local_addr().expect("Failed to get local address").port();
-    drop(listener);
-    port
-}
+// Re-export the shared test utility
+pub use dsdk_facet_testcontainers::utils::get_available_port;
