@@ -309,9 +309,7 @@ pub fn kubectl_apply_stdin(manifest_content: &str) -> Result<()> {
             .context("Failed to write manifest to kubectl stdin")?;
     }
 
-    let output = child
-        .wait_with_output()
-        .context("Failed to wait for kubectl apply")?;
+    let output = child.wait_with_output().context("Failed to wait for kubectl apply")?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
