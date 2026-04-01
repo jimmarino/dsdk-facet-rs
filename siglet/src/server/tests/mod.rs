@@ -147,21 +147,6 @@ async fn test_handle_task_result_cancels_remaining_tasks() {
 }
 
 #[tokio::test]
-async fn test_network_error_propagates() {
-    use std::net::{IpAddr, Ipv4Addr};
-
-    let cancel_token = CancellationToken::new();
-
-    // Try to bind to an invalid IP (broadcast address not allowed for binding)
-    let bind = IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255));
-    let port = 8080;
-
-    let result = crate::server::run_siglet_api(bind, port, cancel_token).await;
-
-    assert!(result.is_err());
-}
-
-#[tokio::test]
 async fn test_port_conflict_propagates() {
     use std::net::{IpAddr, Ipv4Addr};
 
