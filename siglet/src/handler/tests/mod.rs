@@ -17,78 +17,11 @@ use crate::handler::SigletDataFlowHandler;
 use dataplane_sdk::core::handler::DataFlowHandler;
 use dataplane_sdk::core::model::data_flow::DataFlow;
 use dsdk_facet_core::context::ParticipantContext;
+use dsdk_facet_core::token::TokenError;
 use dsdk_facet_core::token::client::{MemoryTokenStore, TokenStore};
 use dsdk_facet_core::token::manager::{RenewableTokenPair, TokenManager};
-use dsdk_facet_core::token::TokenError;
 use std::collections::HashMap;
 use std::sync::Arc;
-
-/// Mock TokenManager for testing
-struct MockTokenManager;
-
-#[async_trait::async_trait]
-impl TokenManager for MockTokenManager {
-    async fn generate_pair(
-        &self,
-        _participant_context: &ParticipantContext,
-        _subject: &str,
-        _claims: HashMap<String, String>,
-        _flow_id: String,
-    ) -> Result<RenewableTokenPair, TokenError> {
-        Ok(RenewableTokenPair::builder()
-            .token("mock_token".to_string())
-            .refresh_token("mock_refresh_token".to_string())
-            .expires_at(chrono::Utc::now() + chrono::Duration::hours(1))
-            .refresh_endpoint("https://mock.endpoint/refresh".to_string())
-            .build())
-    }
-
-    async fn renew(
-        &self,
-        _participant_context: &ParticipantContext,
-        _bound_token: &str,
-        _refresh_token: &str,
-    ) -> Result<RenewableTokenPair, TokenError> {
-        Ok(RenewableTokenPair::builder()
-            .token("mock_renewed_token".to_string())
-            .refresh_token("mock_new_refresh_token".to_string())
-            .expires_at(chrono::Utc::now() + chrono::Duration::hours(1))
-            .refresh_endpoint("https://mock.endpoint/refresh".to_string())
-            .build())
-    }
-
-    async fn revoke_token(
-        &self,
-        _participant_context: &ParticipantContext,
-        _flow_id: &str,
-    ) -> Result<(), TokenError> {
-        Ok(())
-    }
-}
-
-/// Helper function to create a test DataFlow with required fields
-fn create_test_flow(id: &str, participant_id: &str, transfer_type: &str) -> DataFlow {
-    DataFlow::builder()
-        .id(id)
-        .participant_id(participant_id)
-        .transfer_type(transfer_type)
-        .agreement_id("agreement-1")
-        .dataset_id("dataset-1")
-        .dataspace_context("dataspace-1")
-        .counter_party_id("counter-party-1")
-        .callback_address("https://example.com/callback")
-        .participant_context_id("context-1")
-        .build()
-}
-
-/// Helper function to create a TransferTypes configuration
-fn create_transfer_type(transfer_type: &str, endpoint_type: &str, token_source: TokenSource) -> TransferTypes {
-    TransferTypes::builder()
-        .transfer_type(transfer_type.to_string())
-        .endpoint_type(endpoint_type.to_string())
-        .token_source(token_source)
-        .build()
-}
 
 #[tokio::test]
 async fn test_can_handle_with_default_accepts_http_pull() {
@@ -650,4 +583,243 @@ async fn test_on_terminate_propagates_other_errors() {
     let result = handler.on_terminate(&mut tx, &flow).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("Failed to revoke token"));
+}
+
+/// Mock TokenManager for testing
+struct MockTokenManager;
+
+#[async_trait::async_trait]
+impl TokenManager for MockTokenManager {
+    async fn generate_pair(
+        &self,
+        _participant_context: &ParticipantContext,
+        _subject: &str,
+        _claims: HashMap<String, String>,
+        _flow_id: String,
+    ) -> Result<RenewableTokenPair, TokenError> {
+        Ok(RenewableTokenPair::builder()
+            .token("mock_token".to_string())
+            .refresh_token("mock_refresh_token".to_string())
+            .expires_at(chrono::Utc::now() + chrono::Duration::hours(1))
+            .refresh_endpoint("https://mock.endpoint/refresh".to_string())
+            .build())
+    }
+
+    async fn renew(
+        &self,
+        _participant_context: &ParticipantContext,
+        _bound_token: &str,
+        _refresh_token: &str,
+    ) -> Result<RenewableTokenPair, TokenError> {
+        Ok(RenewableTokenPair::builder()
+            .token("mock_renewed_token".to_string())
+            .refresh_token("mock_new_refresh_token".to_string())
+            .expires_at(chrono::Utc::now() + chrono::Duration::hours(1))
+            .refresh_endpoint("https://mock.endpoint/refresh".to_string())
+            .build())
+    }
+
+    async fn revoke_token(&self, _participant_context: &ParticipantContext, _flow_id: &str) -> Result<(), TokenError> {
+        Ok(())
+    }
+}
+
+/// Helper function to create a test DataFlow with required fields
+fn create_test_flow(id: &str, participant_id: &str, transfer_type: &str) -> DataFlow {
+    DataFlow::builder()
+        .id(id)
+        .participant_id(participant_id)
+        .transfer_type(transfer_type)
+        .agreement_id("agreement-1")
+        .dataset_id("dataset-1")
+        .dataspace_context("dataspace-1")
+        .counter_party_id("counter-party-1")
+        .callback_address("https://example.com/callback")
+        .participant_context_id("context-1")
+        .build()
+}
+
+/// Helper function to create a TransferTypes configuration
+fn create_transfer_type(transfer_type: &str, endpoint_type: &str, token_source: TokenSource) -> TransferTypes {
+    TransferTypes::builder()
+        .transfer_type(transfer_type.to_string())
+        .endpoint_type(endpoint_type.to_string())
+        .token_source(token_source)
+        .build()
+}
+
+#[test]
+fn test_value_to_claim_string_with_null() {
+    let value = serde_json::json!(null);
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    assert_eq!(result, "");
+}
+
+#[test]
+fn test_value_to_claim_string_with_boolean_true() {
+    let value = serde_json::json!(true);
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    assert_eq!(result, "true");
+}
+
+#[test]
+fn test_value_to_claim_string_with_boolean_false() {
+    let value = serde_json::json!(false);
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    assert_eq!(result, "false");
+}
+
+#[test]
+fn test_value_to_claim_string_with_integer() {
+    let value = serde_json::json!(42);
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    assert_eq!(result, "42");
+}
+
+#[test]
+fn test_value_to_claim_string_with_negative_integer() {
+    let value = serde_json::json!(-123);
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    assert_eq!(result, "-123");
+}
+
+#[test]
+fn test_value_to_claim_string_with_float() {
+    let value = serde_json::json!(2.14);
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    assert_eq!(result, "2.14");
+}
+
+#[test]
+fn test_value_to_claim_string_with_string() {
+    let value = serde_json::json!("hello world");
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    assert_eq!(result, "hello world");
+}
+
+#[test]
+fn test_value_to_claim_string_with_string_containing_quotes() {
+    let value = serde_json::json!("hello \"world\"");
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    // Raw string, not JSON-encoded
+    assert_eq!(result, "hello \"world\"");
+}
+
+#[test]
+fn test_value_to_claim_string_with_array() {
+    let value = serde_json::json!(["item1", "item2", "item3"]);
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    // Should be JSON-serialized
+    assert_eq!(result, r#"["item1","item2","item3"]"#);
+}
+
+#[test]
+fn test_value_to_claim_string_with_object() {
+    let value = serde_json::json!({"key1": "value1", "key2": "value2"});
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    // Should be JSON-serialized (note: order may vary, so we parse and compare)
+    let parsed: serde_json::Value = serde_json::from_str(&result).expect("Should be valid JSON");
+    assert_eq!(parsed["key1"], "value1");
+    assert_eq!(parsed["key2"], "value2");
+}
+
+#[test]
+fn test_value_to_claim_string_with_nested_object() {
+    let value = serde_json::json!({
+        "user": {
+            "name": "Alice",
+            "age": 30
+        },
+        "active": true
+    });
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    // Should be JSON-serialized
+    let parsed: serde_json::Value = serde_json::from_str(&result).expect("Should be valid JSON");
+    assert_eq!(parsed["user"]["name"], "Alice");
+    assert_eq!(parsed["user"]["age"], 30);
+    assert_eq!(parsed["active"], true);
+}
+
+#[test]
+fn test_value_to_claim_string_with_empty_string() {
+    let value = serde_json::json!("");
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    assert_eq!(result, "");
+}
+
+#[test]
+fn test_value_to_claim_string_with_empty_array() {
+    let value = serde_json::json!([]);
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    assert_eq!(result, "[]");
+}
+
+#[test]
+fn test_value_to_claim_string_with_empty_object() {
+    let value = serde_json::json!({});
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    assert_eq!(result, "{}");
+}
+
+#[test]
+fn test_value_to_claim_string_with_json_encoded_string() {
+    // A string value that contains a JSON-encoded string
+    let value = serde_json::Value::String("\"claimvalue1\"".to_string());
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    // Should unwrap the JSON encoding
+    assert_eq!(result, "claimvalue1");
+}
+
+#[test]
+fn test_value_to_claim_string_with_double_json_encoded_string() {
+    // A string value that contains a double JSON-encoded string
+    let value = serde_json::Value::String("\"\\\"innervalue\\\"\"".to_string());
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    // Should recursively unwrap
+    assert_eq!(result, "innervalue");
+}
+
+#[test]
+fn test_value_to_claim_string_with_json_encoded_number() {
+    // A string value that contains a JSON-encoded number
+    let value = serde_json::Value::String("42".to_string());
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    // Should unwrap to the number as a string
+    assert_eq!(result, "42");
+}
+
+#[test]
+fn test_value_to_claim_string_with_json_encoded_bool() {
+    // A string value that contains a JSON-encoded boolean
+    let value = serde_json::Value::String("true".to_string());
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    // Should unwrap to the boolean as a string
+    assert_eq!(result, "true");
+}
+
+#[test]
+fn test_value_to_claim_string_with_json_encoded_null() {
+    // A string value that contains a JSON-encoded null
+    let value = serde_json::Value::String("null".to_string());
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    // Should unwrap to empty string
+    assert_eq!(result, "");
+}
+
+#[test]
+fn test_value_to_claim_string_with_json_encoded_array() {
+    // A string value that contains a JSON-encoded array
+    let value = serde_json::Value::String("[\"item1\",\"item2\"]".to_string());
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    // Should unwrap and re-serialize as JSON
+    assert_eq!(result, "[\"item1\",\"item2\"]");
+}
+
+#[test]
+fn test_value_to_claim_string_with_json_encoded_object() {
+    // A string value that contains a JSON-encoded object
+    let value = serde_json::Value::String("{\"key\":\"value\"}".to_string());
+    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    // Should unwrap and re-serialize as JSON
+    assert_eq!(result, "{\"key\":\"value\"}");
 }

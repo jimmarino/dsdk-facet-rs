@@ -34,6 +34,12 @@ use std::sync::Arc;
 #[cfg(test)]
 mod tests;
 
+/// JWT claim key constants
+pub const CLAIM_AGREEMENT_ID: &str = "agreementId";
+pub const CLAIM_PARTICIPANT_ID: &str = "participantId";
+pub const CLAIM_COUNTER_PARTY_ID: &str = "counterPartyId";
+pub const CLAIM_DATASET_ID: &str = "datasetId";
+
 /// DataFlowHandler implementation for Siglet
 #[derive(Clone, Builder)]
 pub struct SigletDataFlowHandler {
@@ -62,6 +68,33 @@ fn default_transfer_type_mappings() -> HashMap<String, TransferTypes> {
 }
 
 impl SigletDataFlowHandler {
+    /// Converts a serde_json::Value to a String for use in JWT claims.
+    ///
+    /// - Objects and arrays are serialized as JSON
+    /// - Primitives (string, number, bool) are serialized in raw format (no JSON encoding)
+    /// - null values are serialized as an empty string
+    /// - If a string value is itself a JSON-encoded string, it will be unwrapped
+    fn value_to_claim_string(v: &serde_json::Value) -> String {
+        use serde_json::Value;
+
+        match v {
+            Value::Null => String::new(),
+            Value::Bool(b) => b.to_string(),
+            Value::Number(n) => n.to_string(),
+            Value::String(s) => {
+                // Check if the string is a JSON-encoded value and unwrap it if so
+                if let Ok(parsed) = serde_json::from_str::<Value>(s) {
+                    // If it's a JSON string, recursively process it to unwrap
+                    Self::value_to_claim_string(&parsed)
+                } else {
+                    // Not a JSON value, use as-is
+                    s.clone()
+                }
+            }
+            Value::Array(_) | Value::Object(_) => serde_json::to_string(v).unwrap_or_else(|_| v.to_string()),
+        }
+    }
+
     /// Generates authentication properties from a token pair
     fn create_auth_properties(pair: &RenewableTokenPair) -> Vec<EndpointProperty> {
         vec![
@@ -96,7 +129,15 @@ impl SigletDataFlowHandler {
             return Ok(None);
         }
 
-        let claims: HashMap<String, String> = flow.metadata.iter().map(|(k, v)| (k.clone(), v.to_string())).collect();
+        let mut claims: HashMap<String, String> = flow
+            .metadata
+            .iter()
+            .map(|(k, v)| (k.clone(), Self::value_to_claim_string(v)))
+            .collect();
+        claims.insert(CLAIM_AGREEMENT_ID.to_string(), flow.agreement_id.clone());
+        claims.insert(CLAIM_PARTICIPANT_ID.to_string(), flow.participant_id.clone());
+        claims.insert(CLAIM_COUNTER_PARTY_ID.to_string(), flow.counter_party_id.clone());
+        claims.insert(CLAIM_DATASET_ID.to_string(), flow.dataset_id.clone());
 
         let pair = self
             .token_manager
@@ -118,7 +159,11 @@ impl SigletDataFlowHandler {
             return Ok(None);
         }
 
-        let claims: HashMap<String, String> = flow.metadata.iter().map(|(k, v)| (k.clone(), v.to_string())).collect();
+        let claims: HashMap<String, String> = flow
+            .metadata
+            .iter()
+            .map(|(k, v)| (k.clone(), Self::value_to_claim_string(v)))
+            .collect();
 
         let pair = self
             .token_manager

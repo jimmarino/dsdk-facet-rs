@@ -104,6 +104,12 @@ echo "Building test client image and loading into Kind..."
 echo "Test client image built and loaded"
 echo ""
 
+# Build Siglet image and load into Kind
+echo "Building Siglet image and loading into Kind..."
+"${SCRIPT_DIR}/build-and-load-siglet.sh"
+echo "Siglet image built and loaded"
+echo ""
+
 echo "======================================"
 echo "E2E environment setup complete!"
 echo "======================================"

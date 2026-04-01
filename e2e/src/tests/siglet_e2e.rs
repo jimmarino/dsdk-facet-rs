@@ -121,7 +121,10 @@ async fn test_signaling_operations() -> Result<()> {
         "messageId": "msg-001",
         "counterPartyId": "did:web:consumer.example.com",
         "labels": [],
-        "metadata": {}
+        "metadata": {
+            "claim1": "claimvalue1",
+            "claim2": "claimvalue2"
+        }
     });
 
     // Call the start endpoint
@@ -178,6 +181,38 @@ async fn test_signaling_operations() -> Result<()> {
     let token = auth_prop.get("value").and_then(|v| v.as_str()).unwrap();
     // println!("Token: {}...", &token);
     assert!(!token.is_empty());
+
+    // Decode and parse the JWT
+    let token_parts: Vec<&str> = token.split('.').collect();
+    assert_eq!(
+        token_parts.len(),
+        3,
+        "JWT should have 3 parts (header.payload.signature)"
+    );
+
+    // Decode the payload (second part) from base64
+    use base64::Engine;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let payload_bytes = URL_SAFE_NO_PAD
+        .decode(token_parts[1])
+        .context("Failed to decode JWT payload")?;
+    let payload_str = String::from_utf8(payload_bytes).context("Failed to convert payload to string")?;
+    let jwt_payload: serde_json::Value =
+        serde_json::from_str(&payload_str).context("Failed to parse JWT payload as JSON")?;
+
+    println!("JWT payload: {}", serde_json::to_string_pretty(&jwt_payload)?);
+
+    // Verify the metadata claims are present in the JWT
+    assert_eq!(
+        jwt_payload.get("claim1").and_then(|v| v.as_str()),
+        Some("claimvalue1"),
+        "claim1 should be present in JWT with correct value"
+    );
+    assert_eq!(
+        jwt_payload.get("claim2").and_then(|v| v.as_str()),
+        Some("claimvalue2"),
+        "claim2 should be present in JWT with correct value"
+    );
 
     // Check for refresh token
     let has_refresh = properties_array
