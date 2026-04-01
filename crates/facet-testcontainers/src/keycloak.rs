@@ -127,20 +127,22 @@ async fn cleanup_old_keycloak_containers() {
                                 continue;
                             }
 
-                            // Only remove containers from dead processes
-                            if !is_process_running(pid) {
-                                if let Some(id) = &container.id {
-                                    // Best effort cleanup - ignore errors
-                                    let _ = docker
-                                        .remove_container(
-                                            id,
-                                            Some(RemoveContainerOptions {
-                                                force: true,
-                                                ..Default::default()
-                                            }),
-                                        )
-                                        .await;
-                                }
+                            // Skip containers from processes that are still running
+                            if is_process_running(pid) {
+                                continue;
+                            }
+
+                            // Remove containers from dead processes (best effort - ignore errors)
+                            if let Some(id) = &container.id {
+                                let _ = docker
+                                    .remove_container(
+                                        id,
+                                        Some(RemoveContainerOptions {
+                                            force: true,
+                                            ..Default::default()
+                                        }),
+                                    )
+                                    .await;
                             }
                         }
                     }

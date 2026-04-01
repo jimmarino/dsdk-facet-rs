@@ -80,11 +80,13 @@ async fn cleanup_old_test_networks(docker: &Docker) {
                     continue;
                 }
 
-                // Only remove networks from dead processes
-                if !is_process_running(pid) {
-                    // Best effort cleanup - ignore errors
-                    let _ = docker.remove_network(name).await;
+                // Skip networks from processes that are still running
+                if is_process_running(pid) {
+                    continue;
                 }
+
+                // Remove networks from dead processes (best effort - ignore errors)
+                let _ = docker.remove_network(name).await;
             }
         }
     }
