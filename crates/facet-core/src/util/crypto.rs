@@ -10,8 +10,8 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use base64::Engine;
 use crate::vault::VaultError;
+use base64::Engine;
 
 /// Converts an Ed25519 public key to multibase format (base58btc with 'z' prefix).
 pub fn convert_to_multibase(public_key_base64: &str) -> Result<String, VaultError> {

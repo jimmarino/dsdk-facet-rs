@@ -16,8 +16,8 @@ use crate::jwt::jwtutils::{StaticSigningKeyResolver, StaticVerificationKeyResolv
 use crate::jwt::{
     JwtGenerator, JwtVerifier, KeyFormat, LocalJwtGenerator, LocalJwtVerifier, SigningAlgorithm, TokenClaims,
 };
-use crate::token::manager::RenewableTokenStore;
 use crate::token::TokenError;
+use crate::token::manager::RenewableTokenStore;
 use crate::util::clock::{Clock, MockClock};
 use chrono::{DateTime, TimeDelta};
 use serde_json::Value;
@@ -123,7 +123,12 @@ async fn test_generate_pair_stores_token_entry() {
 
     let pair = fixture
         .manager
-        .generate_pair(&pc, "did:web:consumer.com", custom_claims.clone(), "test_flow".to_string())
+        .generate_pair(
+            &pc,
+            "did:web:consumer.com",
+            custom_claims.clone(),
+            "test_flow".to_string(),
+        )
         .await
         .expect("generate_pair should succeed");
 
@@ -868,24 +873,15 @@ async fn test_revoke_token_success() {
         .expect("Failed to generate pair");
 
     // Verify token exists
-    let entry_before = fixture
-        .store
-        .find_by_flow_id(&pc, "flow_123")
-        .await;
+    let entry_before = fixture.store.find_by_flow_id(&pc, "flow_123").await;
     assert!(entry_before.is_ok(), "Token should exist before revocation");
 
     // Revoke the token
-    let result = fixture
-        .manager
-        .revoke_token(&pc, "flow_123")
-        .await;
+    let result = fixture.manager.revoke_token(&pc, "flow_123").await;
     assert!(result.is_ok(), "Revoke should succeed");
 
     // Verify token no longer exists
-    let entry_after = fixture
-        .store
-        .find_by_flow_id(&pc, "flow_123")
-        .await;
+    let entry_after = fixture.store.find_by_flow_id(&pc, "flow_123").await;
     assert!(entry_after.is_err(), "Token should not exist after revocation");
 }
 
@@ -899,10 +895,7 @@ async fn test_revoke_token_nonexistent() {
         .build();
 
     // Try to revoke a token that doesn't exist
-    let result = fixture
-        .manager
-        .revoke_token(&pc, "nonexistent_flow")
-        .await;
+    let result = fixture.manager.revoke_token(&pc, "nonexistent_flow").await;
 
     assert!(result.is_err(), "Revoking nonexistent token should fail");
     assert!(matches!(result.unwrap_err(), TokenError::TokenNotFound { .. }));
@@ -986,16 +979,10 @@ async fn test_revoke_token_context_isolation() {
         .expect("Revoke should succeed for pc1");
 
     // Verify pc1's token is gone
-    let result_pc1 = fixture
-        .store
-        .find_by_flow_id(&pc1, "shared_flow")
-        .await;
+    let result_pc1 = fixture.store.find_by_flow_id(&pc1, "shared_flow").await;
     assert!(result_pc1.is_err(), "pc1's token should be revoked");
 
     // Verify pc2's token still exists
-    let result_pc2 = fixture
-        .store
-        .find_by_flow_id(&pc2, "shared_flow")
-        .await;
+    let result_pc2 = fixture.store.find_by_flow_id(&pc2, "shared_flow").await;
     assert!(result_pc2.is_ok(), "pc2's token should still exist");
 }

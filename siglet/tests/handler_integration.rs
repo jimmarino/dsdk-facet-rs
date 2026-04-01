@@ -30,7 +30,7 @@ use dsdk_facet_core::token::manager::{JwtTokenManager, MemoryRenewableTokenStore
 use dsdk_facet_core::util::clock::{Clock, MockClock};
 use serde_json::Value;
 use siglet::handler::{
-    SigletDataFlowHandler, CLAIM_AGREEMENT_ID, CLAIM_COUNTER_PARTY_ID, CLAIM_DATASET_ID, CLAIM_PARTICIPANT_ID,
+    CLAIM_AGREEMENT_ID, CLAIM_COUNTER_PARTY_ID, CLAIM_DATASET_ID, CLAIM_PARTICIPANT_ID, SigletDataFlowHandler,
 };
 use std::collections::HashMap;
 use std::sync::Arc;

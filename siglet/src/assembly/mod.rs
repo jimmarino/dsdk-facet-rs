@@ -157,7 +157,10 @@ fn create_token_manager(
     server_secret: Vec<u8>,
     renewable_token_store: Arc<MemoryRenewableTokenStore>,
 ) -> Arc<dyn TokenManager> {
-    let issuer = cfg.token_issuer.clone().unwrap_or_else(|| DEFAULT_TOKEN_ISSUER.to_string());
+    let issuer = cfg
+        .token_issuer
+        .clone()
+        .unwrap_or_else(|| DEFAULT_TOKEN_ISSUER.to_string());
     let refresh_endpoint = cfg
         .token_refresh_endpoint
         .clone()
