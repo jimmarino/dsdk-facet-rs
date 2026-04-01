@@ -10,17 +10,10 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use std::sync::Arc;
-
-use dataplane_sdk::{
-    core::{db::data_flow::memory::MemoryDataFlowRepo, db::memory::MemoryContext},
-    sdk::DataPlaneSdk,
-};
-use dsdk_facet_core::token::MemoryTokenStore;
 use siglet::{
+    assembly::assemble_memory_sdk,
     config::{SigletConfig, StorageBackend, load_config},
     error::SigletError,
-    handler::SigletDataFlowHandler,
     server::run_server,
 };
 use tracing::{error, info};
@@ -37,8 +30,14 @@ async fn main() {
     // Load configuration
     let cfg = load_config().unwrap_or_else(|e| {
         error!("Failed to load configuration: {}", e);
-        SigletConfig::default()
+        std::process::exit(1);
     });
+
+    // Validate configuration
+    if let Err(e) = cfg.validate() {
+        error!("{}", e);
+        std::process::exit(1);
+    }
 
     match run(cfg).await {
         Ok(_) => info!("Shutdown"),
@@ -52,17 +51,7 @@ async fn main() {
 async fn run(cfg: SigletConfig) -> Result<(), SigletError> {
     match cfg.storage_backend {
         StorageBackend::Memory => {
-            let ctx = MemoryContext;
-            let flow_repo = MemoryDataFlowRepo::default();
-            let token_store = Arc::new(MemoryTokenStore::default());
-            let handler = SigletDataFlowHandler::new(token_store);
-
-            let sdk = DataPlaneSdk::builder(ctx)
-                .with_repo(flow_repo)
-                .with_handler(handler)
-                .build()
-                .map_err(|e| SigletError::DataPlane(e.to_string()))?;
-
+            let sdk = assemble_memory_sdk(&cfg).await?;
             run_server(cfg.bind, cfg.signaling_port, cfg.siglet_api_port, sdk).await
         }
         StorageBackend::Postgres => {

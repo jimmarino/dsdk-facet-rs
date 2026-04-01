@@ -10,9 +10,10 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+use super::{TokenClient, TokenData};
 use crate::context::ParticipantContext;
 use crate::jwt::{JwtGenerator, LocalJwtGenerator, TokenClaims};
-use crate::token::{TokenClient, TokenData, TokenError};
+use crate::token::TokenError;
 use crate::util::clock::{Clock, default_clock};
 use async_trait::async_trait;
 use bon::Builder;

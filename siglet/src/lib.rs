@@ -10,6 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+pub mod assembly;
 pub mod config;
 pub mod error;
 pub mod handler;

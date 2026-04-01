@@ -16,6 +16,16 @@ spec:
       labels:
         app: siglet
     spec:
+      serviceAccountName: siglet-sa
+      volumes:
+      - name: vault-secrets
+        emptyDir: {}
+      - name: vault-agent-config
+        configMap:
+          name: vault-agent-config-siglet
+          items:
+          - key: vault-agent-config.hcl
+            path: vault-agent-config.hcl
       containers:
       - name: siglet
         image: siglet:local
@@ -34,6 +44,20 @@ spec:
           value: "8080"
         - name: SIGLET_SIGNALING_PORT
           value: "8081"
+        - name: SIGLET_VAULT_URL
+          value: "http://vault:8200"
+        - name: SIGLET_VAULT_TOKEN_FILE
+          value: "/vault/secrets/.vault-token"
+        - name: SIGLET_VAULT_SIGNING_KEY_NAME
+          value: "siglet-signing-key"
+        - name: SIGLET_TOKEN_ISSUER
+          value: "siglet-e2e"
+        - name: SIGLET_TOKEN_REFRESH_ENDPOINT
+          value: "http://siglet:8080/token/refresh"
+        volumeMounts:
+        - name: vault-secrets
+          mountPath: /vault/secrets
+          readOnly: true
         livenessProbe:
           httpGet:
             path: /health
@@ -57,4 +81,26 @@ spec:
           limits:
             memory: "512Mi"
             cpu: "500m"
+      # Vault Agent sidecar
+      - name: vault-agent
+        image: hashicorp/vault:1.15.0
+        args:
+        - "agent"
+        - "-config=/vault/config/vault-agent-config.hcl"
+        - "-log-level=info"
+        env:
+        - name: VAULT_ADDR
+          value: "http://vault:8200"
+        volumeMounts:
+        - name: vault-agent-config
+          mountPath: /vault/config
+        - name: vault-secrets
+          mountPath: /vault/secrets
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
       restartPolicy: Always

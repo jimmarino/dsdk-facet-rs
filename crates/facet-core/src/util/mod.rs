@@ -14,4 +14,8 @@
 
 pub mod backoff;
 pub mod clock;
+pub mod crypto;
 pub mod encryption;
+
+#[cfg(test)]
+mod tests;

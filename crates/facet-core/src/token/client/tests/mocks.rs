@@ -12,7 +12,8 @@
 
 use crate::context::ParticipantContext;
 use crate::lock::{LockGuard, LockManager, UnlockOps};
-use crate::token::{TokenClient, TokenData, TokenError, TokenStore};
+use crate::token::TokenError;
+use crate::token::client::{TokenClient, TokenData, TokenStore};
 use mockall::mock;
 use mockall::predicate::*;
 use std::sync::Arc;

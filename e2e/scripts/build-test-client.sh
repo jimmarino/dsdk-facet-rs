@@ -35,8 +35,21 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     # Try to build for Linux (requires cross or docker)
     if command -v cross &> /dev/null; then
         echo "Using cross for cross-compilation..."
+        set +e  # Temporarily disable exit on error
         cross build --bin vault-test --package vault-e2e-test-client --release --target x86_64-unknown-linux-musl
-        BINARY_PATH="${WORKSPACE_ROOT}/target/x86_64-unknown-linux-musl/release/vault-test"
+        CROSS_EXIT_CODE=$?
+        set -e  # Re-enable exit on error
+
+        if [ $CROSS_EXIT_CODE -eq 0 ]; then
+            BINARY_PATH="${WORKSPACE_ROOT}/target/x86_64-unknown-linux-musl/release/vault-test"
+        else
+            echo ""
+            echo "WARNING: cross build failed (likely no ARM64 image). Falling back to native build..."
+            echo "The binary will be built for macOS but Docker will run it on Linux emulation."
+            echo ""
+            cargo build --bin vault-test --package vault-e2e-test-client --release
+            BINARY_PATH="${WORKSPACE_ROOT}/target/release/vault-test"
+        fi
     else
         echo "WARNING: 'cross' not found. Attempting native build..."
         echo "This may not work if the test pods are Linux containers."

@@ -4,22 +4,55 @@ This directory contains E2E tests for Kubernetes-based JWT authentication with H
 
 ## Prerequisites
 
-The E2E tests require the following to be installed:
-
 - **Docker**: Container runtime
-
 - **Kind**: Kubernetes in Docker
-
 - **kubectl**: Kubernetes CLI
-
-- **cross** (macOS only): Cross-compilation tool for building Linux binaries
-  - Install with: `cargo install cross`
-  - Not required on Linux
 
 ## Quick Start
 
-To setup the Kind cluster, deploy test infrastructure, and execute tests, run:
+Setup cluster, deploy infrastructure, and run tests:
 
 ```bash
 make all
 ```
+
+## Development Workflow
+
+```bash
+cd e2e
+make test-fast  # Rebuilds images and runs tests
+```
+
+### Initial Setup (one time)
+
+```bash
+cd e2e
+make setup  # Sets up cluster, Vault, and builds all images
+```
+
+### Manual Builds
+
+```bash
+make build-siglet    # Full build (first time: 6+ min)
+make rebuild-siglet  # Fast rebuild (~20-30s)
+make build           # Build vault-test
+```
+
+## Build Performance
+
+Builds use **cargo-chef** for dependency caching:
+- **First build**: 5-6 minutes (builds all dependencies)
+- **Rebuilds**: 20-30 seconds (only recompiles changed code)
+
+No configuration needed - automatically enabled on macOS and Linux.
+
+## Run Specific Tests
+
+```bash
+# Just Siglet tests
+cargo test --package dsdk-facet-e2e-tests --features e2e siglet_e2e -- --ignored
+
+# Single test
+cargo test --package dsdk-facet-e2e-tests --features e2e test_signaling_operations -- --ignored --nocapture
+```
+ 

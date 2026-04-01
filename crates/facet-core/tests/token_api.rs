@@ -16,8 +16,8 @@ use dsdk_facet_core::jwt::jwtutils::{
     StaticSigningKeyResolver, StaticVerificationKeyResolver, generate_ed25519_keypair_pem,
 };
 use dsdk_facet_core::jwt::{JwtVerifier, LocalJwtGenerator, LocalJwtVerifier};
-use dsdk_facet_core::token::oauth::OAuth2TokenClient;
-use dsdk_facet_core::token::{TokenClientApi, TokenData, TokenStore};
+use dsdk_facet_core::token::client::oauth::OAuth2TokenClient;
+use dsdk_facet_core::token::client::{TokenClientApi, TokenData, TokenStore};
 use dsdk_facet_core::util::clock::default_clock;
 use dsdk_facet_core::util::encryption::encryption_key;
 use dsdk_facet_postgres::lock::PostgresLockManager;

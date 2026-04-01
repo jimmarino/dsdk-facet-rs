@@ -9,8 +9,11 @@
 //  Contributors:
 //       Metaform Systems, Inc. - initial API and implementation
 //
+use crate::config::{TokenSource, TransferTypes};
 use bon::Builder;
+use chrono::Utc;
 use dataplane_sdk::core::error::HandlerError;
+use dataplane_sdk::core::model::data_address::{DataAddress, EndpointProperty};
 use dataplane_sdk::core::{
     db::memory::MemoryContext,
     db::tx::TransactionalContext,
@@ -21,26 +24,187 @@ use dataplane_sdk::core::{
         messages::DataFlowResponseMessage,
     },
 };
-use dsdk_facet_core::token::{TokenData, TokenStore};
-use std::collections::HashSet;
+use dsdk_facet_core::context::ParticipantContext;
+use dsdk_facet_core::token::TokenError;
+use dsdk_facet_core::token::client::{TokenData, TokenStore};
+use dsdk_facet_core::token::manager::{RenewableTokenPair, TokenManager};
+use std::collections::HashMap;
 use std::sync::Arc;
+
+#[cfg(test)]
+mod tests;
+
+/// JWT claim key constants
+pub const CLAIM_AGREEMENT_ID: &str = "agreementId";
+pub const CLAIM_PARTICIPANT_ID: &str = "participantId";
+pub const CLAIM_COUNTER_PARTY_ID: &str = "counterPartyId";
+pub const CLAIM_DATASET_ID: &str = "datasetId";
 
 /// DataFlowHandler implementation for Siglet
 #[derive(Clone, Builder)]
 pub struct SigletDataFlowHandler {
+    #[builder(into)]
+    dataplane_id: String,
+
     token_store: Arc<dyn TokenStore>,
-    /// Set of transfer types that this handler can process
-    #[builder(default = HashSet::new())]
-    transfer_types: HashSet<String>,
+
+    token_manager: Arc<dyn TokenManager>,
+
+    #[builder(default = default_transfer_type_mappings())]
+    transfer_type_mappings: HashMap<String, TransferTypes>,
+}
+
+fn default_transfer_type_mappings() -> HashMap<String, TransferTypes> {
+    let mut mappings = HashMap::new();
+    mappings.insert(
+        "http-pull".to_string(),
+        TransferTypes::builder()
+            .transfer_type("http-pull".to_string())
+            .endpoint_type("HTTP".to_string())
+            .token_source(TokenSource::Provider)
+            .build(),
+    );
+    mappings
 }
 
 impl SigletDataFlowHandler {
-    /// Creates a new SigletDataFlowHandler with the given token store and no transfer type restrictions
-    pub fn new(token_store: Arc<dyn TokenStore>) -> Self {
-        Self {
-            token_store,
-            transfer_types: HashSet::new(),
+    /// Converts a serde_json::Value to a String for use in JWT claims.
+    ///
+    /// - Objects and arrays are serialized as JSON
+    /// - Primitives (string, number, bool) are serialized in raw format (no JSON encoding)
+    /// - null values are serialized as an empty string
+    /// - If a string value is itself a JSON-encoded string, it will be unwrapped
+    fn value_to_claim_string(v: &serde_json::Value) -> String {
+        use serde_json::Value;
+
+        match v {
+            Value::Null => String::new(),
+            Value::Bool(b) => b.to_string(),
+            Value::Number(n) => n.to_string(),
+            Value::String(s) => {
+                // Check if the string is a JSON-encoded value and unwrap it if so
+                if let Ok(parsed) = serde_json::from_str::<Value>(s) {
+                    // If it's a JSON string, recursively process it to unwrap
+                    Self::value_to_claim_string(&parsed)
+                } else {
+                    // Not a JSON value, use as-is
+                    s.clone()
+                }
+            }
+            Value::Array(_) | Value::Object(_) => serde_json::to_string(v).unwrap_or_else(|_| v.to_string()),
         }
+    }
+
+    /// Generates authentication properties from a token pair
+    fn create_auth_properties(pair: &RenewableTokenPair) -> Vec<EndpointProperty> {
+        vec![
+            EndpointProperty::builder()
+                .name("authorization")
+                .value(&pair.token)
+                .build(),
+            EndpointProperty::builder().name("authType").value("bearer").build(),
+            EndpointProperty::builder()
+                .name("refreshToken")
+                .value(&pair.refresh_token)
+                .build(),
+            EndpointProperty::builder()
+                .name("expiresIn")
+                .value((pair.expires_at.timestamp() - Utc::now().timestamp()).to_string())
+                .build(),
+            EndpointProperty::builder()
+                .name("refreshEndpoint")
+                .value(&pair.refresh_endpoint)
+                .build(),
+        ]
+    }
+
+    /// Generates a token pair if the token source is Provider
+    async fn generate_token_if_needed(
+        &self,
+        participant_context: &ParticipantContext,
+        transfer_type_config: &TransferTypes,
+        flow: &DataFlow,
+    ) -> HandlerResult<Option<RenewableTokenPair>> {
+        if !matches!(transfer_type_config.token_source, TokenSource::Provider) {
+            return Ok(None);
+        }
+
+        let mut claims: HashMap<String, String> = flow
+            .metadata
+            .iter()
+            .map(|(k, v)| (k.clone(), Self::value_to_claim_string(v)))
+            .collect();
+        claims.insert(CLAIM_AGREEMENT_ID.to_string(), flow.agreement_id.clone());
+        claims.insert(CLAIM_PARTICIPANT_ID.to_string(), flow.participant_id.clone());
+        claims.insert(CLAIM_COUNTER_PARTY_ID.to_string(), flow.counter_party_id.clone());
+        claims.insert(CLAIM_DATASET_ID.to_string(), flow.dataset_id.clone());
+
+        let pair = self
+            .token_manager
+            .generate_pair(participant_context, &flow.counter_party_id, claims, flow.id.clone())
+            .await
+            .map_err(|e| HandlerError::Generic(format!("Failed to generate token pair: {}", e).into()))?;
+
+        Ok(Some(pair))
+    }
+
+    /// Generates a token pair if the token source is Client (consumer side)
+    async fn generate_client_token_if_needed(
+        &self,
+        participant_context: &ParticipantContext,
+        transfer_type_config: &TransferTypes,
+        flow: &DataFlow,
+    ) -> HandlerResult<Option<RenewableTokenPair>> {
+        if !matches!(transfer_type_config.token_source, TokenSource::Client) {
+            return Ok(None);
+        }
+
+        let claims: HashMap<String, String> = flow
+            .metadata
+            .iter()
+            .map(|(k, v)| (k.clone(), Self::value_to_claim_string(v)))
+            .collect();
+
+        let pair = self
+            .token_manager
+            .generate_pair(participant_context, &flow.counter_party_id, claims, flow.id.clone())
+            .await
+            .map_err(|e| HandlerError::Generic(format!("Failed to generate token pair: {}", e).into()))?;
+
+        Ok(Some(pair))
+    }
+
+    async fn cleanup_tokens(
+        &self,
+        flow: &DataFlow,
+        participant_context: &ParticipantContext,
+    ) -> Result<HandlerResult<()>, HandlerError> {
+        // TODO only revoke if this data plane is the token source, otherwise remove from the cache
+        Ok(
+            match self.token_manager.revoke_token(participant_context, &flow.id).await {
+                Ok(_) => Ok(()),
+                Err(TokenError::TokenNotFound { .. }) => {
+                    // Ignore NotFound errors
+                    self.token_store
+                        .remove_token(participant_context.id.as_str(), flow.id.as_str())
+                        .await
+                        .map_err(|e| HandlerError::Generic(format!("Failed to remove token: {}", e).into()))?;
+                    Ok(())
+                }
+                Err(e) => Err(HandlerError::Generic(format!("Failed to revoke token: {}", e).into())),
+            },
+        )
+    }
+
+    /// Extracts a ParticipantContext from a DataFlow
+    ///
+    /// This helper reduces duplication across handler methods that need
+    /// to create participant context from flow data.
+    fn build_participant_context(flow: &DataFlow) -> ParticipantContext {
+        ParticipantContext::builder()
+            .id(flow.participant_context_id.clone())
+            .identifier(flow.participant_id.clone())
+            .build()
     }
 }
 
@@ -49,39 +213,80 @@ impl DataFlowHandler for SigletDataFlowHandler {
     type Transaction = <MemoryContext as TransactionalContext>::Transaction;
 
     async fn can_handle(&self, flow: &DataFlow) -> HandlerResult<bool> {
-        // If no transfer types are configured, accept all flows
-        if self.transfer_types.is_empty() {
-            return Ok(true);
-        }
-
-        Ok(self.transfer_types.contains(&flow.transfer_type))
+        Ok(self.transfer_type_mappings.contains_key(&flow.transfer_type))
     }
 
-    async fn on_start(&self, _tx: &mut Self::Transaction, _flow: &DataFlow) -> HandlerResult<DataFlowResponseMessage> {
-        // TODO: Integrate with facet-token-provider to create access tokens
-        // TODO: Return proper data address with endpoint and access token
+    async fn on_start(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<DataFlowResponseMessage> {
+        let participant_context = Self::build_participant_context(flow);
+
+        let transfer_type_config = self.transfer_type_mappings.get(&flow.transfer_type).ok_or_else(|| {
+            HandlerError::Generic(format!("Unsupported transfer type: {}", flow.transfer_type).into())
+        })?;
+
+        let endpoint_properties = self
+            .generate_token_if_needed(&participant_context, transfer_type_config, flow)
+            .await?
+            .map(|pair| Self::create_auth_properties(&pair))
+            .unwrap_or_default();
+
+        let data_address = DataAddress::builder()
+            .endpoint_type(&transfer_type_config.endpoint_type)
+            .endpoint_properties(endpoint_properties)
+            .build();
+
         Ok(DataFlowResponseMessage::builder()
-            .dataplane_id("siglet")
+            .dataplane_id(self.dataplane_id.clone())
             .state(DataFlowState::Started)
+            .data_address(data_address)
             .build())
     }
 
-    async fn on_prepare(
-        &self,
-        _tx: &mut Self::Transaction,
-        _flow: &DataFlow,
-    ) -> HandlerResult<DataFlowResponseMessage> {
-        // TODO: Create token if configured (consumer side)
+    async fn on_prepare(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<DataFlowResponseMessage> {
+        let participant_context = Self::build_participant_context(flow);
 
-        Ok(DataFlowResponseMessage::builder()
-            .dataplane_id("siglet")
-            .state(DataFlowState::Prepared)
-            .build())
+        let transfer_type_config = self.transfer_type_mappings.get(&flow.transfer_type).ok_or_else(|| {
+            HandlerError::Generic(format!("Unsupported transfer type: {}", flow.transfer_type).into())
+        })?;
+
+        // On consumer side, generate token if token source is Client
+        let maybe_token_pair = self
+            .generate_client_token_if_needed(&participant_context, transfer_type_config, flow)
+            .await?;
+
+        // Transform token pair into data address if present
+        let data_address = maybe_token_pair.map(|pair| {
+            let endpoint_properties = Self::create_auth_properties(&pair);
+            DataAddress::builder()
+                .endpoint_type(&transfer_type_config.endpoint_type)
+                .endpoint_properties(endpoint_properties)
+                .build()
+        });
+
+        // Build response, using map_or to handle both cases without duplication
+        let response = data_address.map_or_else(
+            || {
+                // No data address - build without it
+                DataFlowResponseMessage::builder()
+                    .dataplane_id(self.dataplane_id.clone())
+                    .state(DataFlowState::Prepared)
+                    .build()
+            },
+            |addr| {
+                // With data address - include it
+                DataFlowResponseMessage::builder()
+                    .dataplane_id(self.dataplane_id.clone())
+                    .state(DataFlowState::Prepared)
+                    .data_address(addr)
+                    .build()
+            },
+        );
+
+        Ok(response)
     }
 
-    async fn on_terminate(&self, _tx: &mut Self::Transaction, _flow: &DataFlow) -> HandlerResult<()> {
-        // TODO: Revoke tokens
-        Ok(())
+    async fn on_terminate(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<()> {
+        let participant_context = Self::build_participant_context(flow);
+        self.cleanup_tokens(flow, &participant_context).await?
     }
 
     async fn on_started(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<()> {
@@ -130,12 +335,9 @@ impl DataFlowHandler for SigletDataFlowHandler {
         Ok(())
     }
 
-    async fn on_suspend(&self, _tx: &mut Self::Transaction, _flow: &DataFlow) -> HandlerResult<()> {
-        // TODO: Handle suspend event
-        // TODO on consumer, revoke token
-        Ok(())
+    async fn on_suspend(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<()> {
+        // TODO only revoke if this data plane is the token source, otherwise remove from the cache
+        let participant_context = Self::build_participant_context(flow);
+        self.cleanup_tokens(flow, &participant_context).await?
     }
 }
-
-#[cfg(test)]
-mod tests;
