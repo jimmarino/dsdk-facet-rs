@@ -1,0 +1,44 @@
+# Nextest configuration for facet-rs
+# https://nexte.st/book/configuration.html
+
+[profile.default]
+# Limit test parallelism to avoid Docker resource contention
+# Testcontainers can overwhelm Docker when too many tests start containers simultaneously
+test-threads = 4
+
+# Increase timeouts for container startup
+# Containers (Postgres, Keycloak, Vault) need time to initialize
+slow-timeout = { period = "60s", terminate-after = 2 }
+
+# Retry flaky tests once (useful for container timing issues)
+retries = 1
+
+# Show test output for failed tests
+failure-output = "immediate-final"
+
+# Status level for tests
+status-level = "pass"
+
+[[profile.default.overrides]]
+# Vault integration tests need extra time for container startup
+filter = 'test(test_vault_client_integration) | test(test_vault_signing_with_transit)'
+threads-required = 1
+slow-timeout = { period = "120s" }
+
+[[profile.default.overrides]]
+# Postgres tests need extra time for container startup
+filter = 'test(test_postgres_update_token_success)'
+threads-required = 1
+slow-timeout = { period = "120s" }
+
+[[profile.default.overrides]]
+# E2E tests package needs serial execution
+filter = 'package(dsdk-facet-e2e-tests)'
+threads-required = 1
+slow-timeout = { period = "90s" }
+
+[profile.ci]
+# CI-specific settings
+retries = 2
+failure-output = "final"
+status-level = "all"
