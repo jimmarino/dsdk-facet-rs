@@ -174,18 +174,79 @@ async fn test_on_started_saves_token_to_store() {
     let result = handler.on_started(&mut tx, &flow).await;
     assert!(result.is_ok());
 
-    // Verify token was saved to the store
-    let participant_ctx = ParticipantContext::builder().id("participant-1").build();
+    // Verify token was saved under participant_context_id ("context-1"), not participant_id
+    let participant_ctx = ParticipantContext::builder().id("context-1").build();
     let saved_token = token_store.get_token(&participant_ctx, "flow-1").await;
     assert!(saved_token.is_ok());
 
     let token_data = saved_token.unwrap();
     assert_eq!(token_data.identifier, "flow-1");
-    assert_eq!(token_data.participant_context, "participant-1");
+    assert_eq!(token_data.participant_context, "context-1");
     assert_eq!(token_data.token, "access-token-value");
     assert_eq!(token_data.refresh_token, "refresh-token-value");
     assert_eq!(token_data.refresh_endpoint, "https://example.com/refresh");
     assert_eq!(token_data.endpoint, data_endpoint);
+}
+
+/// Verifies that on_started keys the saved token on participant_context_id, not participant_id.
+///
+/// These two fields have distinct meanings: participant_id is the DID/identity of the participant
+/// (e.g. "did:web:consumer.example.com") while participant_context_id is the local tenant key
+/// used for store isolation (e.g. "ctx-abc123"). Using participant_id as the store key would cause
+/// every subsequent get_token lookup (which uses participant_context_id) to miss.
+#[tokio::test]
+async fn test_on_started_stores_token_under_participant_context_id() {
+    let token_store = Arc::new(MemoryTokenStore::new());
+    let token_manager = create_jwt_token_manager();
+    let handler = SigletDataFlowHandler::builder()
+        .token_store(token_store.clone())
+        .token_manager(token_manager)
+        .dataplane_id("test-dataplane")
+        .transfer_type_mappings(http_pull_mappings())
+        .build();
+
+    let expires_at = Utc::now() + TimeDelta::hours(1);
+    let expires_in_seconds = (expires_at.timestamp() - Utc::now().timestamp()).to_string();
+
+    let data_address = DataAddress::builder()
+        .endpoint_type("HttpData")
+        .endpoint_properties(vec![
+            create_endpoint_property("endpoint", "https://example.com/data"),
+            create_endpoint_property("authorization", "token-value"),
+            create_endpoint_property("refreshToken", "refresh-value"),
+            create_endpoint_property("refreshEndpoint", "https://example.com/refresh"),
+            create_endpoint_property("expiresIn", &expires_in_seconds),
+        ])
+        .build();
+
+    // Use clearly distinct values so any mix-up is immediately visible
+    let flow = DataFlow::builder()
+        .id("flow-distinct")
+        .participant_id("did:web:consumer.example.com")      // identity DID — NOT the store key
+        .participant_context_id("ctx-abc123")                // local context — IS the store key
+        .transfer_type("http-pull")
+        .agreement_id("agreement-1")
+        .dataset_id("dataset-1")
+        .dataspace_context("dataspace-1")
+        .counter_party_id("did:web:provider.example.com")
+        .callback_address("https://example.com/callback")
+        .data_address(data_address)
+        .build();
+
+    let context = MemoryContext;
+    let mut tx = context.begin().await.unwrap();
+    handler.on_started(&mut tx, &flow).await.unwrap();
+
+    // Must be retrievable via participant_context_id
+    let ctx_by_context_id = ParticipantContext::builder().id("ctx-abc123").build();
+    let saved = token_store.get_token(&ctx_by_context_id, "flow-distinct").await;
+    assert!(saved.is_ok(), "token should be found under participant_context_id");
+    assert_eq!(saved.unwrap().participant_context, "ctx-abc123");
+
+    // Must NOT be retrievable via participant_id
+    let ctx_by_participant_id = ParticipantContext::builder().id("did:web:consumer.example.com").build();
+    let missing = token_store.get_token(&ctx_by_participant_id, "flow-distinct").await;
+    assert!(missing.is_err(), "token must not be stored under participant_id");
 }
 
 #[tokio::test]

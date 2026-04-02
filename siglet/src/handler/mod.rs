@@ -284,7 +284,7 @@ impl DataFlowHandler for SigletDataFlowHandler {
 
             let token_data = TokenData {
                 identifier: flow.id.clone(),
-                participant_context: flow.participant_id.clone(),
+                participant_context: flow.participant_context_id.clone(),
                 token: token.to_string(),
                 refresh_token: refresh_token.to_string(),
                 expires_at,
