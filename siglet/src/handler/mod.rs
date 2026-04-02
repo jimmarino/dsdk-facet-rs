@@ -253,7 +253,7 @@ impl DataFlowHandler for SigletDataFlowHandler {
 
     async fn on_started(&self, _tx: &mut Self::Transaction, flow: &DataFlow) -> HandlerResult<()> {
         if let Some(data_address) = flow.data_address.as_ref() {
-            let _endpoint = data_address
+            let endpoint = data_address
                 .get_property("endpoint")
                 .ok_or_else(|| HandlerError::Generic("Data address must contain an endpoint property".into()))?;
 
@@ -289,6 +289,7 @@ impl DataFlowHandler for SigletDataFlowHandler {
                 refresh_token: refresh_token.to_string(),
                 expires_at,
                 refresh_endpoint: refresh_endpoint.to_string(),
+                endpoint: endpoint.to_string(),
             };
 
             self.token_store

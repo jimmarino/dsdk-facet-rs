@@ -154,10 +154,11 @@ async fn test_on_started_saves_token_to_store() {
 
     let expires_in_seconds = (expires_at.timestamp() - Utc::now().timestamp()).to_string();
 
+    let data_endpoint = "https://example.com/data";
     let data_address = DataAddress::builder()
         .endpoint_type("HttpData")
         .endpoint_properties(vec![
-            create_endpoint_property("endpoint", "https://example.com/data"),
+            create_endpoint_property("endpoint", data_endpoint),
             create_endpoint_property("authorization", "access-token-value"),
             create_endpoint_property("refreshToken", "refresh-token-value"),
             create_endpoint_property("refreshEndpoint", "https://example.com/refresh"),
@@ -184,6 +185,7 @@ async fn test_on_started_saves_token_to_store() {
     assert_eq!(token_data.token, "access-token-value");
     assert_eq!(token_data.refresh_token, "refresh-token-value");
     assert_eq!(token_data.refresh_endpoint, "https://example.com/refresh");
+    assert_eq!(token_data.endpoint, data_endpoint);
 }
 
 #[tokio::test]

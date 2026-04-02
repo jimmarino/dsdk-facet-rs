@@ -423,7 +423,9 @@ async fn ensure_siglet_deployed() -> Result<Arc<SigletDeployment>> {
             let _ = kubectl_delete(config_manifest);
 
             // Wait for pods to actually be deleted instead of fixed sleep
-            wait_for_pods_deleted_by_label(E2E_NAMESPACE, "app=siglet", 30)
+            // Wait up to 60s — Kubernetes default graceful termination period is 30s,
+            // so waiting only 30s would race against a pod that just started terminating.
+            wait_for_pods_deleted_by_label(E2E_NAMESPACE, "app=siglet", 60)
                 .await
                 .context("Failed to wait for previous Siglet pods to be deleted")?;
 

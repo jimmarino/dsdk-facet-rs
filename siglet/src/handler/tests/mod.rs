@@ -394,6 +394,7 @@ async fn test_on_terminate_ignores_token_not_found_error() {
         refresh_token: "test_refresh".to_string(),
         expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
         refresh_endpoint: "https://test.endpoint/refresh".to_string(),
+        endpoint: "https://test.endpoint/data".to_string(),
     };
     token_store.save_token(token_data).await.unwrap();
 
