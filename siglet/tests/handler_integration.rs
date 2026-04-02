@@ -29,6 +29,7 @@ use dsdk_facet_core::token::client::{MemoryTokenStore, TokenStore};
 use dsdk_facet_core::token::manager::{JwtTokenManager, MemoryRenewableTokenStore};
 use dsdk_facet_core::util::clock::{Clock, MockClock};
 use serde_json::Value;
+use siglet::config::{TokenSource, TransferType};
 use siglet::handler::{
     CLAIM_AGREEMENT_ID, CLAIM_COUNTER_PARTY_ID, CLAIM_DATASET_ID, CLAIM_PARTICIPANT_ID, SigletDataFlowHandler,
 };
@@ -43,6 +44,7 @@ async fn test_on_start_token_created() {
         .token_store(token_store)
         .token_manager(token_manager)
         .dataplane_id("test-dataplane")
+        .transfer_type_mappings(http_pull_mappings())
         .build();
 
     let flow = create_test_flow("flow-1", "participant-1", "http-pull");
@@ -123,6 +125,7 @@ async fn test_on_suspend_succeeds() {
         .token_store(token_store)
         .token_manager(token_manager)
         .dataplane_id("test-dataplane")
+        .transfer_type_mappings(http_pull_mappings())
         .build();
 
     let flow = create_test_flow("flow-1", "participant-1", "http-pull");
@@ -145,19 +148,20 @@ async fn test_on_started_saves_token_to_store() {
         .token_store(token_store.clone())
         .token_manager(token_manager)
         .dataplane_id("test-dataplane")
+        .transfer_type_mappings(http_pull_mappings())
         .build();
     let expires_at = Utc::now() + TimeDelta::hours(1);
-    let expires_at_str = expires_at.to_rfc3339();
+
+    let expires_in_seconds = (expires_at.timestamp() - Utc::now().timestamp()).to_string();
 
     let data_address = DataAddress::builder()
         .endpoint_type("HttpData")
         .endpoint_properties(vec![
             create_endpoint_property("endpoint", "https://example.com/data"),
-            create_endpoint_property("access_token", "token-id-123"),
-            create_endpoint_property("token", "access-token-value"),
-            create_endpoint_property("refresh_token", "refresh-token-value"),
-            create_endpoint_property("refresh_endpoint", "https://example.com/refresh"),
-            create_endpoint_property("expires_at", &expires_at_str),
+            create_endpoint_property("authorization", "access-token-value"),
+            create_endpoint_property("refreshToken", "refresh-token-value"),
+            create_endpoint_property("refreshEndpoint", "https://example.com/refresh"),
+            create_endpoint_property("expiresIn", &expires_in_seconds),
         ])
         .build();
 
@@ -190,6 +194,7 @@ async fn test_on_started_without_data_address_succeeds() {
         .token_store(token_store)
         .token_manager(token_manager)
         .dataplane_id("test-dataplane")
+        .transfer_type_mappings(http_pull_mappings())
         .build();
 
     let flow = create_test_flow("flow-1", "participant-1", "http-pull");
@@ -209,11 +214,12 @@ async fn test_on_started_with_missing_endpoint_fails() {
         .token_store(token_store)
         .token_manager(token_manager)
         .dataplane_id("test-dataplane")
+        .transfer_type_mappings(http_pull_mappings())
         .build();
 
     let data_address = DataAddress::builder()
         .endpoint_type("HttpData")
-        .endpoint_properties(vec![create_endpoint_property("access_token", "token-id-123")])
+        .endpoint_properties(vec![])
         .build();
 
     let flow = create_test_flow_with_data_address("flow-1", "participant-1", "http-pull", data_address);
@@ -227,31 +233,6 @@ async fn test_on_started_with_missing_endpoint_fails() {
 }
 
 #[tokio::test]
-async fn test_on_started_with_missing_access_token_fails() {
-    let token_store = Arc::new(MemoryTokenStore::new());
-    let token_manager = create_jwt_token_manager();
-    let handler = SigletDataFlowHandler::builder()
-        .token_store(token_store)
-        .token_manager(token_manager)
-        .dataplane_id("test-dataplane")
-        .build();
-
-    let data_address = DataAddress::builder()
-        .endpoint_type("HttpData")
-        .endpoint_properties(vec![create_endpoint_property("endpoint", "https://example.com/data")])
-        .build();
-
-    let flow = create_test_flow_with_data_address("flow-1", "participant-1", "http-pull", data_address);
-
-    let context = MemoryContext;
-    let mut tx = context.begin().await.unwrap();
-
-    let result = handler.on_started(&mut tx, &flow).await;
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("access_token"));
-}
-
-#[tokio::test]
 async fn test_on_started_with_missing_token_fails() {
     let token_store = Arc::new(MemoryTokenStore::new());
     let token_manager = create_jwt_token_manager();
@@ -259,13 +240,13 @@ async fn test_on_started_with_missing_token_fails() {
         .token_store(token_store)
         .token_manager(token_manager)
         .dataplane_id("test-dataplane")
+        .transfer_type_mappings(http_pull_mappings())
         .build();
 
     let data_address = DataAddress::builder()
         .endpoint_type("HttpData")
         .endpoint_properties(vec![
             create_endpoint_property("endpoint", "https://example.com/data"),
-            create_endpoint_property("access_token", "token-id-123"),
         ])
         .build();
 
@@ -276,7 +257,7 @@ async fn test_on_started_with_missing_token_fails() {
 
     let result = handler.on_started(&mut tx, &flow).await;
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("token"));
+    assert!(result.unwrap_err().to_string().contains("authorization"));
 }
 
 /// Helper to create a JwtTokenManager with real JWT generator/verifier for testing
@@ -378,4 +359,19 @@ fn create_test_flow_with_data_address(
         .participant_context_id("context-1")
         .data_address(data_address)
         .build()
+}
+
+/// Helper to build transfer type mappings for http-pull tests
+fn http_pull_mappings() -> HashMap<String, TransferType> {
+    let mut mappings = HashMap::new();
+    mappings.insert(
+        "http-pull".to_string(),
+        TransferType::builder()
+            .transfer_type("http-pull".to_string())
+            .endpoint_type("HTTP".to_string())
+            .endpoint("https://pull.example.com".to_string())
+            .token_source(TokenSource::Provider)
+            .build(),
+    );
+    mappings
 }

@@ -12,7 +12,7 @@
 
 #![allow(clippy::unwrap_used)]
 
-use crate::config::{SigletConfig, StorageBackend, TokenSource, TransferTypes, ValidationError};
+use crate::config::{SigletConfig, StorageBackend, TokenSource, TransferType, ValidationError};
 use std::net::{IpAddr, Ipv4Addr};
 
 /// Helper function to create a valid minimal configuration
@@ -52,9 +52,10 @@ fn test_valid_config_with_all_fields() {
         bind: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         storage_backend: StorageBackend::Memory,
         transfer_types: vec![
-            TransferTypes::builder()
+            TransferType::builder()
                 .transfer_type("http-pull".to_string())
                 .endpoint_type("HTTP".to_string())
+                .endpoint("https://pull.example.com".to_string())
                 .token_source(TokenSource::Provider)
                 .build(),
         ],
@@ -98,20 +99,23 @@ fn test_valid_config_different_ports() {
 fn test_valid_config_with_multiple_transfer_types() {
     let mut config = create_valid_config();
     config.transfer_types = vec![
-        TransferTypes::builder()
+        TransferType::builder()
             .transfer_type("http-pull".to_string())
             .endpoint_type("HTTP".to_string())
+            .endpoint("https://pull.example.com".to_string())
             .token_source(TokenSource::Provider)
             .build(),
-        TransferTypes::builder()
+        TransferType::builder()
             .transfer_type("http-push".to_string())
             .endpoint_type("HTTP".to_string())
+            .endpoint("https://push.example.com".to_string())
             .token_source(TokenSource::Client)
             .build(),
-        TransferTypes::builder()
+        TransferType::builder()
             .transfer_type("s3-pull".to_string())
             .endpoint_type("S3".to_string())
-            .token_source(TokenSource::None)
+            .endpoint("https://s3.example.com".to_string())
+            .token_source(TokenSource::Client)
             .build(),
     ];
 
@@ -400,9 +404,11 @@ fn test_high_port_numbers_valid() {
 fn test_empty_transfer_type() {
     let mut config = create_valid_config();
     config.transfer_types = vec![
-        TransferTypes::builder()
+        TransferType::builder()
             .transfer_type("".to_string())
+            .endpoint("https://pull.example.com".to_string())
             .endpoint_type("HTTP".to_string())
+            .token_source(TokenSource::Provider)
             .build(),
     ];
 
@@ -418,9 +424,11 @@ fn test_empty_transfer_type() {
 fn test_empty_endpoint_type() {
     let mut config = create_valid_config();
     config.transfer_types = vec![
-        TransferTypes::builder()
+        TransferType::builder()
             .transfer_type("http-pull".to_string())
+            .endpoint("https://pull.example.com".to_string())
             .endpoint_type("".to_string())
+            .token_source(TokenSource::Provider)
             .build(),
     ];
 
@@ -433,16 +441,40 @@ fn test_empty_endpoint_type() {
 }
 
 #[test]
+fn test_empty_endpoint() {
+    let mut config = create_valid_config();
+    config.transfer_types = vec![
+        TransferType::builder()
+            .transfer_type("http-pull".to_string())
+            .endpoint("".to_string())
+            .endpoint_type("HTTP".to_string())
+            .token_source(TokenSource::Provider)
+            .build(),
+    ];
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(messages.iter().any(|msg| msg.contains("endpoint cannot be empty")));
+}
+
+#[test]
 fn test_multiple_transfer_types_with_one_invalid() {
     let mut config = create_valid_config();
     config.transfer_types = vec![
-        TransferTypes::builder()
+        TransferType::builder()
             .transfer_type("http-pull".to_string())
             .endpoint_type("HTTP".to_string())
+            .endpoint("https://pull.example.com".to_string())
+            .token_source(TokenSource::Provider)
             .build(),
-        TransferTypes::builder()
+        TransferType::builder()
             .transfer_type("".to_string())
             .endpoint_type("S3".to_string())
+            .endpoint("https://s3.example.com".to_string())
+            .token_source(TokenSource::Client)
             .build(),
     ];
 
@@ -532,9 +564,11 @@ fn test_all_possible_errors() {
         bind: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
         storage_backend: StorageBackend::Postgres, // Error 3
         transfer_types: vec![
-            TransferTypes::builder()
+            TransferType::builder()
                 .transfer_type("".to_string()) // Error 4
                 .endpoint_type("".to_string()) // Error 5
+                .endpoint("".to_string())
+                .token_source(TokenSource::Provider)
                 .build(),
         ],
         vault_url: None,   // Error 6

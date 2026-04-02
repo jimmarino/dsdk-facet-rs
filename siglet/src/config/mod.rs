@@ -57,20 +57,18 @@ pub enum StorageBackend {
     Postgres,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum TokenSource {
     Client,
     Provider,
-    None,
 }
 
 #[derive(Builder, Deserialize, Clone, Debug)]
-pub struct TransferTypes {
+pub struct TransferType {
     pub transfer_type: String,
     pub endpoint_type: String,
-
-    #[builder(default = TokenSource::None)]
+    pub endpoint: String,
     pub token_source: TokenSource,
 }
 
@@ -86,7 +84,7 @@ pub struct SigletConfig {
     #[serde(default)]
     pub storage_backend: StorageBackend,
     #[serde(default)]
-    pub transfer_types: Vec<TransferTypes>,
+    pub transfer_types: Vec<TransferType>,
 
     // Vault configuration
     pub vault_url: Option<String>,
@@ -188,6 +186,9 @@ impl SigletConfig {
             }
             if tt.endpoint_type.is_empty() {
                 errors.push(format!("transfer_types[{}]: endpoint_type cannot be empty", idx));
+            }
+            if tt.endpoint.is_empty() {
+                errors.push(format!("transfer_types[{}]: endpoint cannot be empty", idx));
             }
         }
 

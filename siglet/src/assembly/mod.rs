@@ -10,7 +10,8 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::config::SigletConfig;
+use crate::config::{SigletConfig, TransferType};
+use std::collections::HashMap;
 use crate::error::SigletError;
 use crate::handler::SigletDataFlowHandler;
 use dataplane_sdk::core::db::data_flow::memory::MemoryDataFlowRepo;
@@ -188,14 +189,21 @@ fn create_token_manager(
 /// # Returns
 /// Configured SigletDataFlowHandler
 fn create_handler(
-    _cfg: &SigletConfig,
+    cfg: &SigletConfig,
     token_store: Arc<MemoryTokenStore>,
     token_manager: Arc<dyn TokenManager>,
 ) -> SigletDataFlowHandler {
+    let transfer_type_mappings: HashMap<String, TransferType> = cfg
+        .transfer_types
+        .iter()
+        .map(|tt| (tt.transfer_type.clone(), tt.clone()))
+        .collect();
+
     SigletDataFlowHandler::builder()
         .token_store(token_store)
         .token_manager(token_manager)
         .dataplane_id(DEFAULT_DATAPLANE_ID)
+        .transfer_type_mappings(transfer_type_mappings)
         .build()
 }
 
