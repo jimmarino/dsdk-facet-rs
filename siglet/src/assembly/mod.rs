@@ -11,7 +11,6 @@
 //
 
 use crate::config::{SigletConfig, TransferType};
-use std::collections::HashMap;
 use crate::error::SigletError;
 use crate::handler::SigletDataFlowHandler;
 use dataplane_sdk::core::db::data_flow::memory::MemoryDataFlowRepo;
@@ -26,6 +25,7 @@ use dsdk_facet_core::vault::VaultSigningClient;
 use dsdk_facet_hashicorp_vault::{HashicorpVaultClient, HashicorpVaultConfig, VaultAuthConfig};
 use rand::Rng;
 use rand::thread_rng;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::warn;
 

@@ -59,7 +59,10 @@ impl TokenClientApi {
 
         // Check token validity
         if self.clock.now() < (data.expires_at - TimeDelta::milliseconds(self.refresh_before_expiry_ms)) {
-            return Ok(TokenResult { token: data.token, endpoint });
+            return Ok(TokenResult {
+                token: data.token,
+                endpoint,
+            });
         }
 
         // Token is expiring, acquire lock for refresh

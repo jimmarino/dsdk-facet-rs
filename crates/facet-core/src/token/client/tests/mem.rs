@@ -257,7 +257,10 @@ async fn test_update_token_preserves_endpoint() {
     let retrieved = store.get_token(pc, "flow-1").await.unwrap();
 
     assert_eq!(retrieved.token, "new-token", "Token should be updated");
-    assert_eq!(retrieved.endpoint, original_endpoint, "Endpoint must not change on update");
+    assert_eq!(
+        retrieved.endpoint, original_endpoint,
+        "Endpoint must not change on update"
+    );
 }
 
 #[tokio::test]

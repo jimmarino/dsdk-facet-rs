@@ -115,7 +115,7 @@ impl SigletDataFlowHandler {
     ///
     /// Flow-level claims (agreement, participant, dataset, counter-party) are included
     /// only when `required_source` is `Provider`.
-    async fn generate_token_if_needed(
+    async fn generate_token_for_source(
         &self,
         participant_context: &ParticipantContext,
         config: &TransferType,
@@ -126,6 +126,12 @@ impl SigletDataFlowHandler {
             return Ok(None);
         }
 
+        // value_to_claim_string flattens each metadata value into a plain string for the JWT claim.
+        // Notable behaviours to be aware of when reading claim output:
+        //   - JSON-encoded strings are unwrapped: `"\"hello\""` → `hello`
+        //   - `null` becomes an empty string `""`
+        //   - objects and arrays are serialized as compact JSON
+        // See value_to_claim_string for the full specification.
         let mut claims: HashMap<String, String> = flow
             .metadata
             .iter()
@@ -204,7 +210,7 @@ impl SigletDataFlowHandler {
         let transfer_type = self.get_transfer_type(flow)?;
 
         let data_address = if let Some(pair) = self
-            .generate_token_if_needed(&participant_context, transfer_type, flow, required_source)
+            .generate_token_for_source(&participant_context, transfer_type, flow, required_source)
             .await?
         {
             let mut endpoint_properties = vec![

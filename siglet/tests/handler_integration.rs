@@ -222,8 +222,8 @@ async fn test_on_started_stores_token_under_participant_context_id() {
     // Use clearly distinct values so any mix-up is immediately visible
     let flow = DataFlow::builder()
         .id("flow-distinct")
-        .participant_id("did:web:consumer.example.com")      // identity DID — NOT the store key
-        .participant_context_id("ctx-abc123")                // local context — IS the store key
+        .participant_id("did:web:consumer.example.com") // identity DID — NOT the store key
+        .participant_context_id("ctx-abc123") // local context — IS the store key
         .transfer_type("http-pull")
         .agreement_id("agreement-1")
         .dataset_id("dataset-1")
@@ -308,9 +308,7 @@ async fn test_on_started_with_missing_token_fails() {
 
     let data_address = DataAddress::builder()
         .endpoint_type("HttpData")
-        .endpoint_properties(vec![
-            create_endpoint_property("endpoint", "https://example.com/data"),
-        ])
+        .endpoint_properties(vec![create_endpoint_property("endpoint", "https://example.com/data")])
         .build();
 
     let flow = create_test_flow_with_data_address("flow-1", "participant-1", "http-pull", data_address);
@@ -321,6 +319,109 @@ async fn test_on_started_with_missing_token_fails() {
     let result = handler.on_started(&mut tx, &flow).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("authorization"));
+}
+
+/// Verifies that a metadata value of JSON null produces an empty-string claim in the JWT.
+///
+/// value_to_claim_string maps JSON null → "". This test pins that behavior at the callsite,
+/// so it is visible to anyone reading the claim-generation path, not just the private helper.
+#[tokio::test]
+async fn test_on_start_metadata_null_produces_empty_claim() {
+    let mut metadata = HashMap::new();
+    metadata.insert("nullable_field".to_string(), Value::Null);
+
+    let flow = DataFlow::builder()
+        .id("flow-null")
+        .participant_id("participant-1")
+        .transfer_type("http-pull")
+        .agreement_id("agreement-1")
+        .dataset_id("dataset-1")
+        .dataspace_context("dataspace-1")
+        .counter_party_id("counter-party-1")
+        .callback_address("https://example.com/callback")
+        .participant_context_id("context-1")
+        .metadata(metadata)
+        .build();
+
+    let token_store = Arc::new(MemoryTokenStore::new());
+    let token_manager = create_jwt_token_manager();
+    let handler = SigletDataFlowHandler::builder()
+        .token_store(token_store)
+        .token_manager(token_manager)
+        .dataplane_id("test-dataplane")
+        .transfer_type_mappings(http_pull_mappings())
+        .build();
+
+    let context = MemoryContext;
+    let mut tx = context.begin().await.unwrap();
+    let response = handler.on_start(&mut tx, &flow).await.unwrap();
+
+    let jwt_payload = decode_jwt_payload(&response);
+    assert_eq!(
+        jwt_payload.get("nullable_field").and_then(|v| v.as_str()),
+        Some(""),
+        "JSON null metadata value should produce an empty-string claim"
+    );
+}
+
+/// Verifies that a JSON-encoded string in metadata is unwrapped to its inner value in the JWT.
+///
+/// value_to_claim_string unwraps double-encoded strings: `"\"hello\""` → `hello`.
+/// This test pins that behaviour at the callsite so the transformation is visible
+/// when reading the claim-generation path.
+#[tokio::test]
+async fn test_on_start_metadata_json_encoded_string_is_unwrapped_in_claim() {
+    let mut metadata = HashMap::new();
+    // Simulates a provider that JSON-encodes string values before putting them in metadata
+    metadata.insert(
+        "encoded_field".to_string(),
+        Value::String("\"inner-value\"".to_string()),
+    );
+
+    let flow = DataFlow::builder()
+        .id("flow-encoded")
+        .participant_id("participant-1")
+        .transfer_type("http-pull")
+        .agreement_id("agreement-1")
+        .dataset_id("dataset-1")
+        .dataspace_context("dataspace-1")
+        .counter_party_id("counter-party-1")
+        .callback_address("https://example.com/callback")
+        .participant_context_id("context-1")
+        .metadata(metadata)
+        .build();
+
+    let token_store = Arc::new(MemoryTokenStore::new());
+    let token_manager = create_jwt_token_manager();
+    let handler = SigletDataFlowHandler::builder()
+        .token_store(token_store)
+        .token_manager(token_manager)
+        .dataplane_id("test-dataplane")
+        .transfer_type_mappings(http_pull_mappings())
+        .build();
+
+    let context = MemoryContext;
+    let mut tx = context.begin().await.unwrap();
+    let response = handler.on_start(&mut tx, &flow).await.unwrap();
+
+    let jwt_payload = decode_jwt_payload(&response);
+    assert_eq!(
+        jwt_payload.get("encoded_field").and_then(|v| v.as_str()),
+        Some("inner-value"),
+        "JSON-encoded string metadata value should be unwrapped in the claim"
+    );
+}
+
+/// Decodes the JWT payload from the authorization property of a DataFlowResponseMessage.
+fn decode_jwt_payload(response: &dataplane_sdk::core::model::messages::DataFlowResponseMessage) -> serde_json::Value {
+    let data_address = response.data_address.as_ref().expect("Data address should be present");
+    let token = data_address
+        .get_property("authorization")
+        .expect("Authorization token should be present");
+    let parts: Vec<&str> = token.split('.').collect();
+    assert_eq!(parts.len(), 3, "JWT should have 3 parts");
+    let payload_bytes = URL_SAFE_NO_PAD.decode(parts[1]).expect("Failed to decode JWT payload");
+    serde_json::from_slice(&payload_bytes).expect("Failed to parse JWT payload")
 }
 
 /// Helper to create a JwtTokenManager with real JWT generator/verifier for testing
