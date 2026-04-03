@@ -58,7 +58,7 @@ impl SigletDataFlowHandler {
     ///
     /// - Objects and arrays are serialized as JSON
     /// - Primitives (string, number, bool) are serialized in raw format (no JSON encoding)
-    /// - null values are serialized as an empty string
+    /// - Null values are serialized as an empty string
     /// - If a string value is itself a JSON-encoded string, it will be unwrapped
     fn value_to_claim_string(v: &serde_json::Value) -> String {
         use serde_json::Value;
@@ -111,6 +111,44 @@ impl SigletDataFlowHandler {
             .ok_or_else(|| HandlerError::Generic(format!("Unsupported transfer type: {}", flow.transfer_type).into()))
     }
 
+    /// Resolves the endpoint for the given flow and transfer type configuration.
+    ///
+    /// If `endpoint_mappings` are configured, iterates over them and returns the endpoint whose
+    /// `key`/`value` pair matches a `flow.metadata` entry. Returns an error if no mapping matches.
+    /// If no mappings are configured falls back to the static `endpoint`.
+    fn resolve_endpoint(transfer_type: &TransferType, flow: &DataFlow) -> HandlerResult<String> {
+        if transfer_type.endpoint_mappings.is_empty() {
+            return transfer_type.endpoint.clone().ok_or_else(|| {
+                HandlerError::Generic(
+                    format!(
+                        "No endpoint configured for transfer type '{}'",
+                        transfer_type.transfer_type
+                    )
+                    .into(),
+                )
+            });
+        }
+
+        transfer_type
+            .endpoint_mappings
+            .iter()
+            .find(|m| {
+                flow.metadata
+                    .get(&m.key)
+                    .is_some_and(|v| Self::value_to_claim_string(v) == m.value)
+            })
+            .map(|m| m.endpoint.clone())
+            .ok_or_else(|| {
+                HandlerError::Generic(
+                    format!(
+                        "No endpoint mapping matched for flow '{}' with transfer type '{}'",
+                        flow.id, flow.transfer_type
+                    )
+                    .into(),
+                )
+            })
+    }
+
     /// Generates a token pair if the transfer type's token source matches `required_source`.
     ///
     /// Flow-level claims (agreement, participant, dataset, counter-party) are included
@@ -127,7 +165,7 @@ impl SigletDataFlowHandler {
         }
 
         // value_to_claim_string flattens each metadata value into a plain string for the JWT claim.
-        // Notable behaviours to be aware of when reading claim output:
+        // Notable behaviors to be aware of when reading claim output:
         //   - JSON-encoded strings are unwrapped: `"\"hello\""` → `hello`
         //   - `null` becomes an empty string `""`
         //   - objects and arrays are serialized as compact JSON
@@ -213,12 +251,8 @@ impl SigletDataFlowHandler {
             .generate_token_for_source(&participant_context, transfer_type, flow, required_source)
             .await?
         {
-            let mut endpoint_properties = vec![
-                EndpointProperty::builder()
-                    .name("endpoint")
-                    .value(transfer_type.endpoint.clone())
-                    .build(),
-            ];
+            let endpoint = Self::resolve_endpoint(transfer_type, flow)?;
+            let mut endpoint_properties = vec![EndpointProperty::builder().name("endpoint").value(endpoint).build()];
             endpoint_properties.extend(Self::create_auth_properties(&pair));
             Some(
                 DataAddress::builder()

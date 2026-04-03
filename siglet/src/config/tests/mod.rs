@@ -12,7 +12,7 @@
 
 #![allow(clippy::unwrap_used)]
 
-use crate::config::{SigletConfig, StorageBackend, TokenSource, TransferType, ValidationError};
+use crate::config::{EndpointMapping, SigletConfig, StorageBackend, TokenSource, TransferType, ValidationError};
 use std::net::{IpAddr, Ipv4Addr};
 
 /// Helper function to create a valid minimal configuration
@@ -684,6 +684,203 @@ fn test_config_with_whitespace_in_vault_url() {
 fn test_vault_signing_key_with_special_characters() {
     let mut config = create_valid_config();
     config.vault_signing_key_name = "my-key_2024.v1".to_string();
+
+    assert!(config.validate().is_ok());
+}
+
+// ============================================================================
+// Endpoint Mappings Validation Tests
+// ============================================================================
+
+fn make_mapping(key: &str, value: &str, endpoint: &str) -> EndpointMapping {
+    EndpointMapping::builder()
+        .key(key.to_string())
+        .value(value.to_string())
+        .endpoint(endpoint.to_string())
+        .build()
+}
+
+#[test]
+fn test_valid_transfer_type_with_endpoint_mappings_no_static_endpoint() {
+    let mut config = create_valid_config();
+    config.transfer_types = vec![
+        TransferType::builder()
+            .transfer_type("s3-pull".to_string())
+            .endpoint_type("AmazonS3".to_string())
+            .token_source(TokenSource::Provider)
+            .endpoint_mappings(vec![make_mapping("app", "app1", "https://s3.example.com/climate")])
+            .build(),
+    ];
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_valid_transfer_type_with_endpoint_mappings_and_static_endpoint() {
+    let mut config = create_valid_config();
+    config.transfer_types = vec![
+        TransferType::builder()
+            .transfer_type("s3-pull".to_string())
+            .endpoint_type("AmazonS3".to_string())
+            .endpoint("https://s3.example.com/default".to_string())
+            .token_source(TokenSource::Provider)
+            .endpoint_mappings(vec![make_mapping("app", "app1", "https://s3.example.com/climate")])
+            .build(),
+    ];
+
+    // Both static endpoint and mappings is valid
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_transfer_type_missing_endpoint_without_mappings() {
+    let mut config = create_valid_config();
+    config.transfer_types = vec![
+        TransferType::builder()
+            .transfer_type("s3-pull".to_string())
+            .endpoint_type("AmazonS3".to_string())
+            .token_source(TokenSource::Provider)
+            .build(),
+    ];
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(
+        messages
+            .iter()
+            .any(|msg| msg.contains("endpoint is required when no endpoint_mappings are configured"))
+    );
+}
+
+#[test]
+fn test_transfer_type_endpoint_mapping_empty_key() {
+    let mut config = create_valid_config();
+    config.transfer_types = vec![
+        TransferType::builder()
+            .transfer_type("s3-pull".to_string())
+            .endpoint_type("AmazonS3".to_string())
+            .token_source(TokenSource::Provider)
+            .endpoint_mappings(vec![make_mapping("", "app1", "https://s3.example.com/bucket")])
+            .build(),
+    ];
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(
+        messages
+            .iter()
+            .any(|msg| msg.contains("endpoint_mappings[0]") && msg.contains("key cannot be empty"))
+    );
+}
+
+#[test]
+fn test_transfer_type_endpoint_mapping_empty_value() {
+    let mut config = create_valid_config();
+    config.transfer_types = vec![
+        TransferType::builder()
+            .transfer_type("s3-pull".to_string())
+            .endpoint_type("AmazonS3".to_string())
+            .token_source(TokenSource::Provider)
+            .endpoint_mappings(vec![make_mapping("app", "", "https://s3.example.com/bucket")])
+            .build(),
+    ];
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(
+        messages
+            .iter()
+            .any(|msg| msg.contains("endpoint_mappings[0]") && msg.contains("value cannot be empty"))
+    );
+}
+
+#[test]
+fn test_transfer_type_endpoint_mapping_empty_endpoint() {
+    let mut config = create_valid_config();
+    config.transfer_types = vec![
+        TransferType::builder()
+            .transfer_type("s3-pull".to_string())
+            .endpoint_type("AmazonS3".to_string())
+            .token_source(TokenSource::Provider)
+            .endpoint_mappings(vec![make_mapping("app", "app1", "")])
+            .build(),
+    ];
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(
+        messages
+            .iter()
+            .any(|msg| msg.contains("endpoint_mappings[0]") && msg.contains("endpoint cannot be empty"))
+    );
+}
+
+#[test]
+fn test_transfer_type_multiple_mapping_errors_reported() {
+    let mut config = create_valid_config();
+    config.transfer_types = vec![
+        TransferType::builder()
+            .transfer_type("s3-pull".to_string())
+            .endpoint_type("AmazonS3".to_string())
+            .token_source(TokenSource::Provider)
+            .endpoint_mappings(vec![make_mapping("", "", "")])
+            .build(),
+    ];
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    // Empty key + empty value + empty endpoint = 3 errors from the one mapping
+    let err = result.unwrap_err();
+    assert!(err.error_count() >= 3);
+}
+
+#[test]
+fn test_valid_transfer_type_with_arbitrary_metadata_key() {
+    // Any metadata key name is valid — not restricted to a fixed allowlist
+    let mut config = create_valid_config();
+    config.transfer_types = vec![
+        TransferType::builder()
+            .transfer_type("s3-pull".to_string())
+            .endpoint_type("AmazonS3".to_string())
+            .token_source(TokenSource::Provider)
+            .endpoint_mappings(vec![make_mapping(
+                "customMetaField",
+                "some-value",
+                "https://s3.example.com/bucket",
+            )])
+            .build(),
+    ];
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_valid_transfer_type_with_multiple_mappings() {
+    let mut config = create_valid_config();
+    config.transfer_types = vec![
+        TransferType::builder()
+            .transfer_type("s3-pull".to_string())
+            .endpoint_type("AmazonS3".to_string())
+            .token_source(TokenSource::Provider)
+            .endpoint_mappings(vec![
+                make_mapping("app", "app1", "https://s3.example.com/climate"),
+                make_mapping("app", "app2", "https://s3.example.com/finance"),
+            ])
+            .build(),
+    ];
 
     assert!(config.validate().is_ok());
 }
