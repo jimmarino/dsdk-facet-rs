@@ -135,8 +135,6 @@ async fn test_pull_operations() -> Result<()> {
         .await
         .context("Failed to parse prepare response")?;
 
-    println!("Prepare response: {}", serde_json::to_string_pretty(&prepare_result)?);
-
     // Verify prepare response does NOT contain a meaningful dataAddress (it's a pull)
     // The field might be present but should be null or empty
     if let Some(data_address) = prepare_result.get("dataAddress") {
@@ -148,7 +146,6 @@ async fn test_pull_operations() -> Result<()> {
     }
 
     // Step 2: Provider calls start endpoint
-    println!("Step 2: Provider calling start endpoint");
     let start_message = serde_json::json!({
         "datasetId": "test-dataset-123",
         "participantId": "did:web:provider.example.com",
@@ -236,8 +233,6 @@ async fn test_pull_operations() -> Result<()> {
     let jwt_payload: serde_json::Value =
         serde_json::from_str(&payload_str).context("Failed to parse JWT payload as JSON")?;
 
-    println!("JWT payload: {}", serde_json::to_string_pretty(&jwt_payload)?);
-
     // Verify the metadata claims are present in the JWT
     assert_eq!(
         jwt_payload.get("claim1").and_then(|v| v.as_str()),
@@ -263,7 +258,6 @@ async fn test_pull_operations() -> Result<()> {
     assert!(has_endpoint, "Refresh Endpoint not found in data address");
 
     // Step 3: Consumer calls started endpoint with provider's data address
-    println!("Step 3: Consumer calling started endpoint with provider's data address");
     let started_message = serde_json::json!({
         "participantId": "did:web:consumer.example.com",
         "counterPartyId": "did:web:provider.example.com",
@@ -298,7 +292,6 @@ async fn test_pull_operations() -> Result<()> {
     }
 
     // Step 4: Provider terminates the transfer
-    println!("Step 4: Provider calling terminate endpoint");
     let terminate_message = serde_json::json!({
         "reason": "Test termination"
     });
