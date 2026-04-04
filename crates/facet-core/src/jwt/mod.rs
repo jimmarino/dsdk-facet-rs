@@ -79,11 +79,7 @@ impl From<VaultError> for JwtGenerationError {
 /// Note that verification does not check the value of the `iss` and `sub` claims. Clients should enforce requirements
 /// for these claims as needed.
 pub trait JwtVerifier: Send + Sync {
-    fn verify_token(
-        &self,
-        participant_context: &ParticipantContext,
-        token: &str,
-    ) -> Result<TokenClaims, JwtVerificationError>;
+    fn verify_token(&self, audience: &str, token: &str) -> Result<TokenClaims, JwtVerificationError>;
 }
 
 /// Errors that can occur during JWT verification.
@@ -287,11 +283,7 @@ impl LocalJwtVerifier {
 }
 
 impl JwtVerifier for LocalJwtVerifier {
-    fn verify_token(
-        &self,
-        participant_context: &ParticipantContext,
-        token: &str,
-    ) -> Result<TokenClaims, JwtVerificationError> {
+    fn verify_token(&self, audience: &str, token: &str) -> Result<TokenClaims, JwtVerificationError> {
         // Extract kid from header (without verification)
         let header = decode_header(token).map_err(|_| JwtVerificationError::InvalidFormat)?;
 
@@ -307,7 +299,7 @@ impl JwtVerifier for LocalJwtVerifier {
         let mut validation = Validation::new(self.signing_algorithm.into());
         validation.leeway = self.leeway_seconds;
         validation.validate_nbf = true; // Enable not-before validation
-        validation.aud = Some(HashSet::from([participant_context.audience.clone()]));
+        validation.aud = Some(HashSet::from([audience.to_string()]));
 
         // Perform the actual cryptographic verification with the correct key
         let token_data = decode::<TokenClaims>(token, &decoding_key, &validation).map_err(|e| match e.kind() {

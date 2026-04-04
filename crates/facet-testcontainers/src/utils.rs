@@ -1,4 +1,5 @@
-use std::net::TcpListener;
+use std::net::{SocketAddr, TcpListener};
+use std::time::Duration;
 use testcontainers::bollard::{Docker, secret::NetworkCreateRequest};
 
 /// Get an available port by binding to port 0 and retrieving the assigned port
@@ -7,6 +8,18 @@ pub fn get_available_port() -> u16 {
     let port = listener.local_addr().expect("Failed to get local address").port();
     drop(listener);
     port
+}
+
+/// Wait for a server port to be ready by polling with TCP connections.
+pub async fn wait_for_port_ready(addr: SocketAddr, timeout: Duration) -> Result<(), String> {
+    let deadline = tokio::time::Instant::now() + timeout;
+    while tokio::time::Instant::now() < deadline {
+        if tokio::net::TcpStream::connect(addr).await.is_ok() {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    Err(format!("Server at {} did not become ready within {:?}", addr, timeout))
 }
 
 /// Creates a Docker network and returns its name.

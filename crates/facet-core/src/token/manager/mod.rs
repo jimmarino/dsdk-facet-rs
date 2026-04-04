@@ -20,13 +20,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::context::ParticipantContext;
-use crate::jwt::TokenClaims;
+use crate::jwt;
+use crate::jwt::{JwtVerifier, TokenClaims};
 use crate::token::TokenError;
 use crate::util::clock::{Clock, default_clock};
 use async_trait::async_trait;
 use bon::Builder;
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
+use jwt::JwtGenerator;
 use rand::RngCore;
 use serde_json::Value;
 use sha2::Sha256;
@@ -53,12 +55,7 @@ pub trait TokenManager: Send + Sync {
         flow_id: String,
     ) -> Result<RenewableTokenPair, TokenError>;
 
-    async fn renew(
-        &self,
-        participant_context: &ParticipantContext,
-        bound_token: &str,
-        refresh_token: &str,
-    ) -> Result<RenewableTokenPair, TokenError>;
+    async fn renew(&self, bound_token: &str, refresh_token: &str) -> Result<RenewableTokenPair, TokenError>;
 
     async fn revoke_token(&self, participant_context: &ParticipantContext, flow_id: &str) -> Result<(), TokenError>;
 }
@@ -112,56 +109,40 @@ pub struct RenewableTokenPair {
 ///
 /// - `flow_id`:
 ///   An identifier for the flow or session associated with this token.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Builder)]
 pub struct RenewableTokenEntry {
+    #[builder(into)]
     pub id: String,
+    #[builder(into)]
     pub token: String,
+    #[builder(into)]
     pub hashed_refresh_token: String,
     pub expires_at: DateTime<Utc>,
-    pub subject: String,
+    #[builder(into)]
+    pub subject: String, // the counter-party that the token is issued to
     pub claims: HashMap<String, String>,
+    #[builder(into)]
+    pub participant_context_id: String, // the participant context that the token is valid for
+    #[builder(into)]
+    pub audience: String, // the participant context audience, e.g. its DID
+    #[builder(into)]
     pub flow_id: String,
 }
 
 /// Stores renewable token pairs.
 #[async_trait]
 pub trait RenewableTokenStore: Send + Sync {
-    async fn save(
-        &self,
-        participant_context: &ParticipantContext,
-        entry: RenewableTokenEntry,
-    ) -> Result<(), TokenError>;
+    async fn save(&self, entry: RenewableTokenEntry) -> Result<(), TokenError>;
 
-    async fn find_by_renewal(
-        &self,
-        participant_context: &ParticipantContext,
-        hash: &str,
-    ) -> Result<RenewableTokenEntry, TokenError>;
+    async fn find_by_renewal(&self, hash: &str) -> Result<RenewableTokenEntry, TokenError>;
 
-    async fn find_by_id(
-        &self,
-        participant_context: &ParticipantContext,
-        id: &str,
-    ) -> Result<RenewableTokenEntry, TokenError>;
+    async fn find_by_id(&self, id: &str) -> Result<RenewableTokenEntry, TokenError>;
 
-    async fn find_by_flow_id(
-        &self,
-        participant_context: &ParticipantContext,
-        flow_id: &str,
-    ) -> Result<RenewableTokenEntry, TokenError>;
+    async fn find_by_flow_id(&self, flow_id: &str) -> Result<RenewableTokenEntry, TokenError>;
 
-    async fn remove_by_flow_id(
-        &self,
-        participant_context: &ParticipantContext,
-        flow_id: &str,
-    ) -> Result<(), TokenError>;
+    async fn remove_by_flow_id(&self, flow_id: &str) -> Result<(), TokenError>;
 
-    async fn update(
-        &self,
-        participant_context: &ParticipantContext,
-        old_hash: &str,
-        new_entry: RenewableTokenEntry,
-    ) -> Result<(), TokenError>;
+    async fn update(&self, old_hash: &str, new_entry: RenewableTokenEntry) -> Result<(), TokenError>;
 }
 
 #[derive(Builder)]
@@ -188,8 +169,8 @@ pub struct JwtTokenManager {
     clock: Arc<dyn Clock>,
 
     token_store: Arc<dyn RenewableTokenStore>,
-    token_generator: Arc<dyn crate::jwt::JwtGenerator>,
-    token_verifier: Arc<dyn crate::jwt::JwtVerifier>,
+    token_generator: Arc<dyn JwtGenerator>,
+    token_verifier: Arc<dyn JwtVerifier>,
 }
 
 impl JwtTokenManager {
@@ -235,13 +216,7 @@ impl JwtTokenManager {
         Ok(hex::encode(mac.finalize().into_bytes()))
     }
 
-    fn create_claims(
-        &self,
-        participant_context: &ParticipantContext,
-        jti: &str,
-        subject: &str,
-        claims: &HashMap<String, String>,
-    ) -> TokenClaims {
+    fn create_claims(&self, aud: &str, jti: &str, subject: &str, claims: &HashMap<String, String>) -> TokenClaims {
         let mut custom = serde_json::Map::new();
         for (k, v) in claims.iter() {
             custom.insert(k.clone(), Value::String(v.to_string()));
@@ -251,7 +226,7 @@ impl JwtTokenManager {
         TokenClaims::builder()
             .iss(self.issuer.clone())
             .sub(subject)
-            .aud(participant_context.identifier.clone())
+            .aud(aud)
             .exp(self.clock.now().timestamp() + self.token_duration)
             .custom(custom)
             .build()
@@ -282,7 +257,8 @@ impl TokenManager for JwtTokenManager {
         Self::validate_custom_claims(&claims)?;
 
         let jti = Uuid::new_v4().to_string();
-        let token_claims = self.create_claims(participant_context, &jti, subject, &claims);
+        let aud = participant_context.audience.as_str();
+        let token_claims = self.create_claims(aud, &jti, subject, &claims);
         let token = self
             .token_generator
             .generate_token(participant_context, token_claims)
@@ -293,17 +269,19 @@ impl TokenManager for JwtTokenManager {
         let expires_at = self.expiration()?;
 
         // Create and save the renewable token entry
-        let entry = RenewableTokenEntry {
-            id: jti,              // Move instead of clone
-            token: token.clone(), // Still need to clone - used in return value
-            hashed_refresh_token, // Move instead of clone
-            expires_at,
-            subject: subject.to_string(),
-            claims, // Move instead of clone
-            flow_id,
-        };
+        let entry = RenewableTokenEntry::builder()
+            .id(jti)
+            .token(token.clone())
+            .hashed_refresh_token(hashed_refresh_token)
+            .expires_at(expires_at)
+            .subject(subject)
+            .claims(claims)
+            .participant_context_id(participant_context.id.clone())
+            .audience(participant_context.audience.clone())
+            .flow_id(flow_id)
+            .build();
 
-        self.token_store.save(participant_context, entry).await?;
+        self.token_store.save(entry).await?;
 
         Ok(RenewableTokenPair {
             token,
@@ -313,23 +291,18 @@ impl TokenManager for JwtTokenManager {
         })
     }
 
-    async fn renew(
-        &self,
-        participant_context: &ParticipantContext,
-        bound_token: &str,
-        refresh_token: &str,
-    ) -> Result<RenewableTokenPair, TokenError> {
+    async fn renew(&self, bound_token: &str, refresh_token: &str) -> Result<RenewableTokenPair, TokenError> {
         // Validate server secret meets minimum security requirements
         Self::validate_server_secret(&self.server_secret)?;
 
         let hashed = self.hash(refresh_token)?;
         let entry = self
             .token_store
-            .find_by_renewal(participant_context, &hashed)
+            .find_by_renewal(&hashed)
             .await
             .map_err(|_| TokenError::NotAuthorized("Invalid refresh token".to_string()))?;
 
-        let verified_claims = self.token_verifier.verify_token(participant_context, bound_token)?;
+        let verified_claims = self.token_verifier.verify_token(&entry.audience, bound_token)?;
         if verified_claims.sub != entry.subject {
             return Err(TokenError::NotAuthorized("Subject mismatch".to_string()));
         }
@@ -347,30 +320,31 @@ impl TokenManager for JwtTokenManager {
         let (new_refresh_token, new_hashed) = self.create_renewal_token()?;
 
         let new_jti = Uuid::new_v4().to_string();
+        let aud = entry.audience.as_str();
+        let new_claims = self.create_claims(aud, &new_jti, verified_claims.sub.as_str(), &entry.claims);
 
-        let new_claims = self.create_claims(
-            participant_context,
-            &new_jti,
-            verified_claims.sub.as_str(),
-            &entry.claims,
-        );
-
+        let participant_context = ParticipantContext::builder()
+            .id(entry.participant_context_id.clone())
+            .audience(entry.audience.clone())
+            .build();
         let token = self
             .token_generator
-            .generate_token(participant_context, new_claims)
+            .generate_token(&participant_context, new_claims)
             .await?;
 
-        let new_entry = RenewableTokenEntry {
-            id: new_jti,
-            token: token.clone(), // Still need to clone - used in return value
-            hashed_refresh_token: new_hashed,
-            expires_at: new_expires_at,
-            subject: entry.subject, // Move instead of clone
-            claims: entry.claims,   // Move instead of clone
-            flow_id: entry.flow_id, // Move instead of clone
-        };
+        let new_entry = RenewableTokenEntry::builder()
+            .id(new_jti)
+            .token(token.clone())
+            .hashed_refresh_token(new_hashed)
+            .expires_at(new_expires_at)
+            .subject(entry.subject)
+            .claims(entry.claims)
+            .participant_context_id(entry.participant_context_id)
+            .audience(entry.audience.clone())
+            .flow_id(entry.flow_id)
+            .build();
 
-        self.token_store.update(participant_context, &hashed, new_entry).await?;
+        self.token_store.update(&hashed, new_entry).await?;
 
         Ok(RenewableTokenPair {
             token,
@@ -380,7 +354,7 @@ impl TokenManager for JwtTokenManager {
         })
     }
 
-    async fn revoke_token(&self, participant_context: &ParticipantContext, flow_id: &str) -> Result<(), TokenError> {
-        self.token_store.remove_by_flow_id(participant_context, flow_id).await
+    async fn revoke_token(&self, _participant_context: &ParticipantContext, flow_id: &str) -> Result<(), TokenError> {
+        self.token_store.remove_by_flow_id(flow_id).await
     }
 }

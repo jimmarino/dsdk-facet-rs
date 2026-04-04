@@ -10,10 +10,8 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-#![allow(clippy::unwrap_used)]
-
+use super::SigletDataFlowHandler;
 use crate::config::{TokenSource, TransferType};
-use crate::handler::SigletDataFlowHandler;
 use dataplane_sdk::core::handler::DataFlowHandler;
 use dataplane_sdk::core::model::data_flow::DataFlow;
 use dsdk_facet_core::context::ParticipantContext;
@@ -282,12 +280,7 @@ async fn test_on_terminate_revokes_token_successfully() {
                 .build())
         }
 
-        async fn renew(
-            &self,
-            _participant_context: &ParticipantContext,
-            _bound_token: &str,
-            _refresh_token: &str,
-        ) -> Result<RenewableTokenPair, TokenError> {
+        async fn renew(&self, _bound_token: &str, _refresh_token: &str) -> Result<RenewableTokenPair, TokenError> {
             Ok(RenewableTokenPair::builder()
                 .token("mock_renewed_token".to_string())
                 .refresh_token("mock_new_refresh_token".to_string())
@@ -359,12 +352,7 @@ async fn test_on_terminate_ignores_token_not_found_error() {
                 .build())
         }
 
-        async fn renew(
-            &self,
-            _participant_context: &ParticipantContext,
-            _bound_token: &str,
-            _refresh_token: &str,
-        ) -> Result<RenewableTokenPair, TokenError> {
+        async fn renew(&self, _bound_token: &str, _refresh_token: &str) -> Result<RenewableTokenPair, TokenError> {
             Ok(RenewableTokenPair::builder()
                 .token("mock_renewed_token".to_string())
                 .refresh_token("mock_new_refresh_token".to_string())
@@ -449,12 +437,7 @@ async fn test_on_terminate_propagates_other_errors() {
                 .build())
         }
 
-        async fn renew(
-            &self,
-            _participant_context: &ParticipantContext,
-            _bound_token: &str,
-            _refresh_token: &str,
-        ) -> Result<RenewableTokenPair, TokenError> {
+        async fn renew(&self, _bound_token: &str, _refresh_token: &str) -> Result<RenewableTokenPair, TokenError> {
             Ok(RenewableTokenPair::builder()
                 .token("mock_renewed_token".to_string())
                 .refresh_token("mock_new_refresh_token".to_string())
@@ -517,12 +500,7 @@ impl TokenManager for MockTokenManager {
             .build())
     }
 
-    async fn renew(
-        &self,
-        _participant_context: &ParticipantContext,
-        _bound_token: &str,
-        _refresh_token: &str,
-    ) -> Result<RenewableTokenPair, TokenError> {
+    async fn renew(&self, _bound_token: &str, _refresh_token: &str) -> Result<RenewableTokenPair, TokenError> {
         Ok(RenewableTokenPair::builder()
             .token("mock_renewed_token".to_string())
             .refresh_token("mock_new_refresh_token".to_string())

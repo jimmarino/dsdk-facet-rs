@@ -11,8 +11,8 @@
 //
 
 use siglet::{
-    assembly::assemble_memory_sdk,
-    config::{SigletConfig, StorageBackend, load_config},
+    assembly::assemble,
+    config::{SigletConfig, load_config},
     error::SigletError,
     server::run_server,
 };
@@ -21,19 +21,16 @@ use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitEx
 
 #[tokio::main]
 async fn main() {
-    // Initialize tracing subscriber with info level default
     tracing_subscriber::registry()
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // Load configuration
     let cfg = load_config().unwrap_or_else(|e| {
         error!("Failed to load configuration: {}", e);
         std::process::exit(1);
     });
 
-    // Validate configuration
     if let Err(e) = cfg.validate() {
         error!("{}", e);
         std::process::exit(1);
@@ -49,13 +46,13 @@ async fn main() {
 }
 
 async fn run(cfg: SigletConfig) -> Result<(), SigletError> {
-    match cfg.storage_backend {
-        StorageBackend::Memory => {
-            let sdk = assemble_memory_sdk(&cfg).await?;
-            run_server(cfg.bind, cfg.signaling_port, cfg.siglet_api_port, sdk).await
-        }
-        StorageBackend::Postgres => {
-            todo!("Postgres storage backend not yet implemented")
-        }
-    }
+    let runtime = assemble(&cfg).await?;
+    run_server(
+        cfg.bind,
+        cfg.signaling_port,
+        cfg.siglet_api_port,
+        runtime.sdk,
+        runtime.token_api_handler,
+    )
+    .await
 }

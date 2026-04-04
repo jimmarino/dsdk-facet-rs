@@ -66,11 +66,7 @@ pub struct TestJwtVerifier {
 }
 
 impl JwtVerifier for TestJwtVerifier {
-    fn verify_token(
-        &self,
-        _participant_context: &ParticipantContext,
-        _token: &str,
-    ) -> std::result::Result<TokenClaims, JwtVerificationError> {
+    fn verify_token(&self, _audience: &str, _token: &str) -> std::result::Result<TokenClaims, JwtVerificationError> {
         let mut custom = Map::new();
         custom.insert("scope".to_string(), Value::String(self.scope.clone()));
         Ok(TokenClaims {
@@ -92,11 +88,7 @@ pub struct TokenMatchingJwtVerifier {
 }
 
 impl JwtVerifier for TokenMatchingJwtVerifier {
-    fn verify_token(
-        &self,
-        _participant_context: &ParticipantContext,
-        token: &str,
-    ) -> std::result::Result<TokenClaims, JwtVerificationError> {
+    fn verify_token(&self, _audience: &str, token: &str) -> std::result::Result<TokenClaims, JwtVerificationError> {
         let mut custom = Map::new();
         custom.insert("scope".to_string(), Value::String(self.scope.clone()));
 
@@ -186,11 +178,7 @@ pub struct DetailedFailureJwtVerifier {
 }
 
 impl JwtVerifier for DetailedFailureJwtVerifier {
-    fn verify_token(
-        &self,
-        _participant_context: &ParticipantContext,
-        _token: &str,
-    ) -> std::result::Result<TokenClaims, JwtVerificationError> {
+    fn verify_token(&self, _audience: &str, _token: &str) -> std::result::Result<TokenClaims, JwtVerificationError> {
         Err(JwtVerificationError::VerificationFailed(format!(
             "Key server at {} returned 500: Internal Server Error, correlation-id: {}, trace-id: xyz-789",
             self.internal_detail, "req-abc-123-def"

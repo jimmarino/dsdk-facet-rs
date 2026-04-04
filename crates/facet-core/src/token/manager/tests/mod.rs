@@ -43,11 +43,7 @@ impl JwtGenerator for MockJwtGenerator {
 struct MockJwtVerifier;
 
 impl JwtVerifier for MockJwtVerifier {
-    fn verify_token(
-        &self,
-        _participant_context: &crate::context::ParticipantContext,
-        _token: &str,
-    ) -> Result<crate::jwt::TokenClaims, JwtVerificationError> {
+    fn verify_token(&self, _aud: &str, _token: &str) -> Result<crate::jwt::TokenClaims, JwtVerificationError> {
         Ok(crate::jwt::TokenClaims::builder()
             .iss("test")
             .sub("test_subject")

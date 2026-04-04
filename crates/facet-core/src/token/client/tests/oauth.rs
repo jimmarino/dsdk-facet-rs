@@ -59,7 +59,7 @@ async fn test_refresh_token_success() {
         .mount(&mock_server)
         .await;
 
-    let pc = &ParticipantContext::builder()
+    let pc = ParticipantContext::builder()
         .id("test-participant")
         .audience("test-audience")
         .build();
@@ -67,7 +67,7 @@ async fn test_refresh_token_success() {
     let refresh_endpoint = format!("{}/token/refresh", mock_server.uri());
     let token_data = client
         .refresh_token(
-            pc,
+            &pc,
             "test-identifier",
             "old_access_token",
             "old_refresh_token",

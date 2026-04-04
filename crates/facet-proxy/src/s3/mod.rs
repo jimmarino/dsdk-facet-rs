@@ -342,7 +342,7 @@ impl ProxyHttp for S3Proxy {
         // Verify token (remove from request if valid)
         let claims = self
             .token_verifier
-            .verify_token(&ctx.participant_context, token)
+            .verify_token(&ctx.participant_context.audience, token)
             .map_err(|e| client_error_because(403, "JWT token verification failed", e))?;
 
         let scope = claims
@@ -491,11 +491,7 @@ pub(crate) fn client_error_because<E: std::error::Error + Send + Sync + 'static>
 struct NoOpJwtVerifier;
 
 impl JwtVerifier for NoOpJwtVerifier {
-    fn verify_token(
-        &self,
-        _participant_context: &ParticipantContext,
-        _token: &str,
-    ) -> Result<TokenClaims, JwtVerificationError> {
+    fn verify_token(&self, _audience: &str, _token: &str) -> Result<TokenClaims, JwtVerificationError> {
         let mut custom = Map::new();
         custom.insert("scope".to_string(), Value::String("test-scope".to_string()));
         Ok(TokenClaims {

@@ -112,12 +112,12 @@ async fn test_api_end_to_end_with_refresh() {
         .clock(default_clock())
         .build();
 
-    let pc1 = &ParticipantContext::builder()
+    let pc1 = ParticipantContext::builder()
         .id("participant1")
         .audience("audience1")
         .build();
 
-    let result = token_api.get_token(pc1, "token1", "participant1").await;
+    let result = token_api.get_token(&pc1, "token1", "participant1").await;
     assert!(result.is_ok());
     let token_result = result.unwrap();
     assert_eq!(token_result.token, "new_access_token");
@@ -128,7 +128,7 @@ async fn test_api_end_to_end_with_refresh() {
     assert!(delete_result.is_ok());
 
     // Verify token is deleted by attempting to retrieve it
-    let get_after_delete = token_api.get_token(pc1, "token1", "participant1").await;
+    let get_after_delete = token_api.get_token(&pc1, "token1", "participant1").await;
     assert!(get_after_delete.is_err());
 }
 
@@ -172,7 +172,7 @@ impl Match for BearerTokenVerifier {
         };
 
         // Verify the token
-        let claims = match self.verifier.verify_token(&self.participant_context, token) {
+        let claims = match self.verifier.verify_token(&self.participant_context.audience, token) {
             Ok(claims) => claims,
             Err(_) => return false,
         };

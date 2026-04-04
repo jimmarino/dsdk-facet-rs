@@ -12,7 +12,7 @@
 
 #![allow(clippy::unwrap_used)]
 
-use crate::assembly::{create_handler, create_token_manager, generate_server_secret};
+use crate::assembly::{create_siglet_handler, create_token_manager, generate_server_secret};
 use crate::config::SigletConfig;
 use dsdk_facet_core::context::ParticipantContext;
 use dsdk_facet_core::jwt::{JwtGenerationError, JwtGenerator, JwtVerificationError, JwtVerifier, TokenClaims};
@@ -290,7 +290,7 @@ fn test_token_manager_and_handler_integration() {
     let token_manager = create_token_manager(&cfg, jwt_gen, jwt_ver, secret, renewable_store);
     let token_store = Arc::new(MemoryTokenStore::default());
 
-    let handler = create_handler(&cfg, token_store, token_manager);
+    let handler = create_siglet_handler(&cfg, token_store, token_manager);
     let _ = handler;
 }
 
@@ -316,11 +316,7 @@ impl JwtGenerator for MockJwtGenerator {
 struct MockJwtVerifier;
 
 impl JwtVerifier for MockJwtVerifier {
-    fn verify_token(
-        &self,
-        _participant_context: &ParticipantContext,
-        _token: &str,
-    ) -> Result<TokenClaims, JwtVerificationError> {
+    fn verify_token(&self, _audience: &str, _token: &str) -> Result<TokenClaims, JwtVerificationError> {
         let exp_time = (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp();
         Ok(TokenClaims::builder()
             .sub("test-subject")

@@ -77,7 +77,7 @@ async fn test_vault_signing_key_resolver_successful_resolution() {
     let verifier = create_test_verifier(keypair.public_key, KeyFormat::PEM, SigningAlgorithm::EdDSA);
 
     let verified_claims = verifier
-        .verify_token(&pc, token.as_str())
+        .verify_token("test-audience", &token)
         .expect("Token verification should succeed");
 
     assert_eq!(verified_claims.sub, "user-123");
@@ -217,18 +217,18 @@ async fn test_vault_signing_key_resolver_different_participants() {
     // Verify token 1 with keypair 1
     let verifier1 = create_test_verifier(keypair1.public_key, KeyFormat::PEM, SigningAlgorithm::EdDSA);
     let verified_claims1 = verifier1
-        .verify_token(&pc1, token1.as_str())
+        .verify_token("audience-1", &token1)
         .expect("Token 1 verification should succeed");
     assert_eq!(verified_claims1.sub, "user-123");
 
     // Verify token 2 with keypair 2
     let verifier2 = create_test_verifier(keypair2.public_key, KeyFormat::PEM, SigningAlgorithm::EdDSA);
     let verified_claims2 = verifier2
-        .verify_token(&pc2, token2.as_str())
+        .verify_token("audience-2", &token2)
         .expect("Token 2 verification should succeed");
     assert_eq!(verified_claims2.sub, "user-456");
 
     // Verify token 1 with keypair 2 should fail
-    let result = verifier2.verify_token(&pc1, token1.as_str());
+    let result = verifier2.verify_token("audience-1", &token1);
     assert!(result.is_err());
 }

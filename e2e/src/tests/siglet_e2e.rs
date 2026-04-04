@@ -100,7 +100,6 @@ async fn test_pull_operations() -> Result<()> {
     let client = Client::new();
 
     // Step 1: Consumer calls prepare endpoint
-    println!("Step 1: Consumer calling prepare endpoint");
     let prepare_message = serde_json::json!({
         "datasetId": "test-dataset-123",
         "participantId": "did:web:consumer.example.com",

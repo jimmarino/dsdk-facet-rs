@@ -18,6 +18,7 @@ use crate::jwt::jwtutils::{generate_ed25519_keypair_der, generate_ed25519_keypai
 use crate::jwt::{JwtGenerator, JwtVerificationError, JwtVerifier, KeyFormat, SigningAlgorithm, TokenClaims};
 use chrono::Utc;
 use rstest::rstest;
+use serde_json::json;
 
 #[rstest]
 #[case(KeyFormat::PEM)]
@@ -44,30 +45,26 @@ async fn test_token_generation_validation(#[case] key_format: KeyFormat) {
         .iss("user-id-123")
         .aud("audience1")
         .exp(now + 10000)
-        .custom({
-            let mut custom = serde_json::Map::new();
-            custom.insert(
-                "access_token".to_string(),
-                serde_json::Value::String("token-value".to_string()),
-            );
-            custom
-        })
+        .custom(serde_json::Map::from_iter([(
+            "access_token".to_string(),
+            json!("token-value"),
+        )]))
         .build();
 
-    let pc = &ParticipantContext::builder()
+    let pc = ParticipantContext::builder()
         .id("participant1")
         .audience("audience1")
         .build();
 
     let token = generator
-        .generate_token(pc, claims)
+        .generate_token(&pc, claims)
         .await
         .expect("Token generation should succeed");
 
     let verifier = create_test_verifier(keypair.public_key, key_format, SigningAlgorithm::EdDSA);
 
     let verified_claims = verifier
-        .verify_token(pc, token.as_str())
+        .verify_token(&pc.audience, &token)
         .expect("Token verification should succeed");
 
     assert_eq!(verified_claims.sub, "user-id-123");
@@ -75,7 +72,7 @@ async fn test_token_generation_validation(#[case] key_format: KeyFormat) {
     assert_eq!(verified_claims.exp, now + 10000);
     assert_eq!(
         verified_claims.custom.get("access_token").unwrap(),
-        &serde_json::Value::String("token-value".to_string())
+        &json!("token-value")
     );
 }
 
@@ -100,19 +97,19 @@ async fn test_expired_token_validation_pem_eddsa() {
         .exp(now - 10000) // Expired 10,000 seconds ago
         .build();
 
-    let pc = &ParticipantContext::builder()
+    let pc = ParticipantContext::builder()
         .id("participant-1")
         .audience("audience-123")
         .build();
 
     let token = generator
-        .generate_token(pc, claims)
+        .generate_token(&pc, claims)
         .await
         .expect("Token generation should succeed");
 
     let verifier = create_test_verifier(keypair.public_key, KeyFormat::PEM, SigningAlgorithm::EdDSA);
 
-    let result = verifier.verify_token(pc, token.as_str());
+    let result = verifier.verify_token(&pc.audience, &token);
 
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), JwtVerificationError::TokenExpired));
@@ -138,13 +135,13 @@ async fn test_leeway_allows_recently_expired_token_pem_eddsa() {
         .exp(now - 20) // Expired 20 seconds ago
         .build();
 
-    let pc = &ParticipantContext::builder()
+    let pc = ParticipantContext::builder()
         .id("participant1")
         .audience("audience1")
         .build();
 
     let token = generator
-        .generate_token(pc, claims)
+        .generate_token(&pc, claims)
         .await
         .expect("Token generation should succeed");
 
@@ -152,7 +149,7 @@ async fn test_leeway_allows_recently_expired_token_pem_eddsa() {
     let verifier = create_test_verifier_with_leeway(keypair.public_key, KeyFormat::PEM, SigningAlgorithm::EdDSA, 30);
 
     let verified_claims = verifier
-        .verify_token(pc, token.as_str())
+        .verify_token(&pc.audience, &token)
         .expect("Token should be valid with leeway");
 
     assert_eq!(verified_claims.sub, "user-id-789");
@@ -180,20 +177,20 @@ async fn test_leeway_rejects_token_expired_beyond_leeway_pem_eddsa() {
         .exp(now - 100) // Expired 100 seconds ago
         .build();
 
-    let pc = &ParticipantContext::builder()
+    let pc = ParticipantContext::builder()
         .id("participant-1")
         .audience("audience-123")
         .build();
 
     let token = generator
-        .generate_token(pc, claims)
+        .generate_token(&pc, claims)
         .await
         .expect("Token generation should succeed");
 
     // Verifier with 30-second leeway should reject token expired 100 seconds ago
     let verifier = create_test_verifier_with_leeway(keypair.public_key, KeyFormat::PEM, SigningAlgorithm::EdDSA, 30);
 
-    let result = verifier.verify_token(pc, token.as_str());
+    let result = verifier.verify_token(&pc.audience, &token);
 
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), JwtVerificationError::TokenExpired));
@@ -221,20 +218,20 @@ async fn test_invalid_signature_pem_eddsa() {
         .exp(now + 10000)
         .build();
 
-    let pc = &ParticipantContext::builder()
+    let pc = ParticipantContext::builder()
         .id("participant-1")
         .audience("audience-123")
         .build();
 
     let token = generator
-        .generate_token(pc, claims)
+        .generate_token(&pc, claims)
         .await
         .expect("Token generation should succeed");
 
     // Try to verify with a different public key
     let verifier = create_test_verifier(keypair2.public_key, KeyFormat::PEM, SigningAlgorithm::EdDSA);
 
-    let result = verifier.verify_token(pc, token.as_str());
+    let result = verifier.verify_token(&pc.audience, &token);
 
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), JwtVerificationError::InvalidSignature));
@@ -246,23 +243,23 @@ async fn test_malformed_token_pem_eddsa() {
 
     let verifier = create_test_verifier(keypair.public_key, KeyFormat::PEM, SigningAlgorithm::EdDSA);
 
-    let pc = &ParticipantContext::builder()
+    let pc = ParticipantContext::builder()
         .id("participant1")
         .audience("audience1")
         .build();
 
     // Empty token string
-    let result = verifier.verify_token(pc, "");
+    let result = verifier.verify_token(&pc.audience, "");
     assert!(result.is_err(), "Empty token should fail validation");
     assert!(matches!(result.unwrap_err(), JwtVerificationError::InvalidFormat));
 
     // Token with only one dot (missing signature part)
-    let result = verifier.verify_token(pc, "header.payload");
+    let result = verifier.verify_token(&pc.audience, "header.payload");
     assert!(result.is_err(), "Token missing signature should fail validation");
     assert!(matches!(result.unwrap_err(), JwtVerificationError::InvalidFormat));
 
     // Token with invalid base64 in parts
-    let result = verifier.verify_token(pc, "not.a.token");
+    let result = verifier.verify_token(&pc.audience, "not.a.token");
     assert!(result.is_err(), "Token with invalid base64 should fail validation");
     match result.unwrap_err() {
         JwtVerificationError::InvalidFormat | JwtVerificationError::VerificationFailed(_) => {}
@@ -270,14 +267,14 @@ async fn test_malformed_token_pem_eddsa() {
     }
 
     // Token with no dots at all
-    let result = verifier.verify_token(pc, "invalid-token");
+    let result = verifier.verify_token(&pc.audience, "invalid-token");
     assert!(result.is_err(), "Token with no dots should fail validation");
     assert!(matches!(result.unwrap_err(), JwtVerificationError::InvalidFormat));
 }
 
 #[tokio::test]
 async fn test_mismatched_key_format_pem_eddsa() {
-    let pc = &ParticipantContext::builder()
+    let pc = ParticipantContext::builder()
         .id("participant-1")
         .audience("audience-123")
         .build();
@@ -301,7 +298,7 @@ async fn test_mismatched_key_format_pem_eddsa() {
         .build();
 
     let token = generator
-        .generate_token(pc, claims)
+        .generate_token(&pc, claims)
         .await
         .expect("Token generation should succeed");
 
@@ -309,7 +306,7 @@ async fn test_mismatched_key_format_pem_eddsa() {
 
     let verifier = create_test_verifier(keypair_der.public_key, KeyFormat::DER, SigningAlgorithm::EdDSA);
 
-    let result = verifier.verify_token(pc, token.as_str());
+    let result = verifier.verify_token(&pc.audience, &token);
 
     // This should fail because we're using a different keypair
     assert!(result.is_err());
@@ -333,36 +330,29 @@ async fn test_rsa_token_generation_validation_pem() {
         .sub("user-id-456")
         .aud("audience1")
         .exp(now + 10000)
-        .custom({
-            let mut custom = serde_json::Map::new();
-            custom.insert("scope".to_string(), serde_json::Value::String("read:data".to_string()));
-            custom
-        })
+        .custom(serde_json::Map::from_iter([("scope".to_string(), json!("read:data"))]))
         .build();
 
-    let pc = &ParticipantContext::builder()
+    let pc = ParticipantContext::builder()
         .id("participant1")
         .audience("audience1")
         .build();
 
     let token = generator
-        .generate_token(pc, claims)
+        .generate_token(&pc, claims)
         .await
         .expect("Token generation should succeed");
 
     let verifier = create_test_verifier(keypair.public_key, KeyFormat::PEM, SigningAlgorithm::RS256);
 
     let verified_claims = verifier
-        .verify_token(pc, token.as_str())
+        .verify_token(&pc.audience, &token)
         .expect("Token verification should succeed");
 
     assert_eq!(verified_claims.sub, "user-id-456");
     assert_eq!(verified_claims.iss, "issuer-rsa");
     assert_eq!(verified_claims.exp, now + 10000);
-    assert_eq!(
-        verified_claims.custom.get("scope").unwrap(),
-        &serde_json::Value::String("read:data".to_string())
-    );
+    assert_eq!(verified_claims.custom.get("scope").unwrap(), &json!("read:data"));
 }
 
 #[tokio::test]
@@ -386,25 +376,25 @@ async fn test_audience_mismatch_pem_eddsa() {
         .exp(now + 10000)
         .build();
 
-    let pc_generate = &ParticipantContext::builder()
+    let pc_generate = ParticipantContext::builder()
         .id("participant-1")
         .audience("audience-123")
         .build();
 
     let token = generator
-        .generate_token(pc_generate, claims)
+        .generate_token(&pc_generate, claims)
         .await
         .expect("Token generation should succeed");
 
     let verifier = create_test_verifier(keypair.public_key, KeyFormat::PEM, SigningAlgorithm::EdDSA);
 
     // Try to verify with a different audience
-    let pc_verify = &ParticipantContext::builder()
+    let pc_verify = ParticipantContext::builder()
         .id("participant-1")
         .audience("different-audience")
         .build();
 
-    let result = verifier.verify_token(pc_verify, token.as_str());
+    let result = verifier.verify_token(&pc_verify.audience, &token);
 
     assert!(result.is_err());
     assert!(matches!(
@@ -436,20 +426,20 @@ async fn test_algorithm_mismatch_pem() {
         .exp(now + 10000)
         .build();
 
-    let pc = &ParticipantContext::builder()
+    let pc = ParticipantContext::builder()
         .id("participant-1")
         .audience("audience-123")
         .build();
 
     let token = generator
-        .generate_token(pc, claims)
+        .generate_token(&pc, claims)
         .await
         .expect("Token generation should succeed");
 
     // Try to verify EdDSA token with RS256 verifier
     let verifier = create_test_verifier(keypair_rsa.public_key, KeyFormat::PEM, SigningAlgorithm::RS256);
 
-    let result = verifier.verify_token(pc, token.as_str());
+    let result = verifier.verify_token(&pc.audience, &token);
 
     // Should fail due to algorithm mismatch
     assert!(result.is_err());
@@ -477,19 +467,19 @@ async fn test_not_before_validation_pem_eddsa() {
         .exp(now + 20000)
         .build();
 
-    let pc = &ParticipantContext::builder()
+    let pc = ParticipantContext::builder()
         .id("participant-1")
         .audience("audience-123")
         .build();
 
     let token = generator
-        .generate_token(pc, claims)
+        .generate_token(&pc, claims)
         .await
         .expect("Token generation should succeed");
 
     let verifier = create_test_verifier(keypair.public_key, KeyFormat::PEM, SigningAlgorithm::EdDSA);
 
-    let result = verifier.verify_token(pc, token.as_str());
+    let result = verifier.verify_token(&pc.audience, &token);
 
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), JwtVerificationError::TokenNotYetValid));
@@ -517,13 +507,13 @@ async fn test_not_before_with_leeway_pem_eddsa() {
         .exp(now + 10000)
         .build();
 
-    let pc = &ParticipantContext::builder()
+    let pc = ParticipantContext::builder()
         .id("participant-1")
         .audience("audience-123")
         .build();
 
     let token = generator
-        .generate_token(pc, claims)
+        .generate_token(&pc, claims)
         .await
         .expect("Token generation should succeed");
 
@@ -531,7 +521,7 @@ async fn test_not_before_with_leeway_pem_eddsa() {
     let verifier = create_test_verifier_with_leeway(keypair.public_key, KeyFormat::PEM, SigningAlgorithm::EdDSA, 30);
 
     let verified_claims = verifier
-        .verify_token(pc, token.as_str())
+        .verify_token(&pc.audience, &token)
         .expect("Token should be valid with leeway");
 
     assert_eq!(verified_claims.sub, "user-id-456");
@@ -560,20 +550,20 @@ async fn test_not_before_beyond_leeway_pem_eddsa() {
         .exp(now + 10000)
         .build();
 
-    let pc = &ParticipantContext::builder()
+    let pc = ParticipantContext::builder()
         .id("participant-1")
         .audience("audience-123")
         .build();
 
     let token = generator
-        .generate_token(pc, claims)
+        .generate_token(&pc, claims)
         .await
         .expect("Token generation should succeed");
 
     // Verifier with 30-second leeway should reject token with nbf 100 seconds in the future
     let verifier = create_test_verifier_with_leeway(keypair.public_key, KeyFormat::PEM, SigningAlgorithm::EdDSA, 30);
 
-    let result = verifier.verify_token(pc, token.as_str());
+    let result = verifier.verify_token(&pc.audience, &token);
 
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), JwtVerificationError::TokenNotYetValid));
@@ -605,13 +595,13 @@ async fn test_generator_sets_iat_automatically_pem_eddsa() {
         .exp(now + 10000)
         .build();
 
-    let pc = &ParticipantContext::builder()
+    let pc = ParticipantContext::builder()
         .id("participant-1")
         .audience("audience-123")
         .build();
 
     let token = generator
-        .generate_token(pc, claims)
+        .generate_token(&pc, claims)
         .await
         .expect("Token generation should succeed");
 
@@ -620,7 +610,7 @@ async fn test_generator_sets_iat_automatically_pem_eddsa() {
     let verifier = create_test_verifier(keypair.public_key, KeyFormat::PEM, SigningAlgorithm::EdDSA);
 
     let verified_claims = verifier
-        .verify_token(pc, token.as_str())
+        .verify_token(&pc.audience, &token)
         .expect("Token verification should succeed");
 
     // Verify that the iat claim was set to current time, NOT the old value we passed in
@@ -661,19 +651,19 @@ async fn test_kid_and_iss_are_set_correctly_in_generated_token() {
         .exp(now + 10000)
         .build();
 
-    let pc = &ParticipantContext::builder().id("participant1").build();
+    let pc = ParticipantContext::builder().id("participant1").build();
 
     let token = generator
-        .generate_token(pc, claims)
+        .generate_token(&pc, claims)
         .await
         .expect("Token generation should succeed");
 
     // Verify kid in header
-    let header = jsonwebtoken::decode_header(token.as_str()).expect("Should be able to decode header");
+    let header = jsonwebtoken::decode_header(&token).expect("Should be able to decode header");
     assert_eq!(header.kid, Some(expected_kid.to_string()), "kid header should match");
 
     // Verify iss in claims
-    let unverified_claims = jsonwebtoken::dangerous::insecure_decode::<TokenClaims>(token.as_str())
+    let unverified_claims = jsonwebtoken::dangerous::insecure_decode::<TokenClaims>(&token)
         .expect("Should be able to decode claims")
         .claims;
     assert_eq!(unverified_claims.iss, expected_iss, "iss claim should match");

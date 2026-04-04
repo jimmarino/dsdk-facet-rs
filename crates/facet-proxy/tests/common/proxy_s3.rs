@@ -129,12 +129,12 @@ impl ProxyConfig {
         let auth_evaluator = Arc::new(MemoryAuthorizationEvaluator::new());
         let rule = dsdk_facet_core::auth::Rule::new(scope, vec!["s3:GetObject".to_string()], ".*".to_string())
             .expect("Failed to create authorization rule");
-        let ctx = &ParticipantContext::builder()
+        let ctx = ParticipantContext::builder()
             .id("proxy")
             .audience("test-audience")
             .build();
 
-        auth_evaluator.save_rule(ctx, rule).await.unwrap();
+        auth_evaluator.save_rule(&ctx, rule).await.unwrap();
 
         Self {
             port,
@@ -251,10 +251,10 @@ pub async fn add_auth_rule(
     )
     .unwrap();
 
-    let ctx = &ParticipantContext::builder()
+    let ctx = ParticipantContext::builder()
         .id(participant_id)
         .audience("test-audience")
         .build();
 
-    evaluator.save_rule(ctx, rule).await.unwrap();
+    evaluator.save_rule(&ctx, rule).await.unwrap();
 }

@@ -66,6 +66,9 @@ fn test_valid_config_with_all_fields() {
         token_issuer: Some("my-issuer".to_string()),
         token_refresh_endpoint: Some("https://api.example.com/refresh".to_string()),
         token_server_secret: Some("0123456789abcdef0123456789abcdef".to_string()), // 16 bytes
+        postgres_url: None,
+        postgres_encryption_password: None,
+        postgres_encryption_salt: None,
     };
 
     assert!(config.validate().is_ok());
@@ -578,6 +581,9 @@ fn test_all_possible_errors() {
         token_issuer: None,
         token_refresh_endpoint: None,
         token_server_secret: Some("invalid-hex".to_string()), // Error 9
+        postgres_url: None,
+        postgres_encryption_password: None,
+        postgres_encryption_salt: None,
     };
 
     let result = config.validate();

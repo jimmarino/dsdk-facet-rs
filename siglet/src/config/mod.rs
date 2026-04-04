@@ -107,6 +107,11 @@ pub struct SigletConfig {
     pub token_issuer: Option<String>,
     pub token_refresh_endpoint: Option<String>,
     pub token_server_secret: Option<String>,
+
+    // Postgres backend configuration
+    pub postgres_url: Option<String>,
+    pub postgres_encryption_password: Option<String>,
+    pub postgres_encryption_salt: Option<String>,
 }
 
 impl Default for SigletConfig {
@@ -124,6 +129,9 @@ impl Default for SigletConfig {
             token_issuer: None,
             token_refresh_endpoint: None,
             token_server_secret: None,
+            postgres_url: None,
+            postgres_encryption_password: None,
+            postgres_encryption_salt: None,
         }
     }
 }

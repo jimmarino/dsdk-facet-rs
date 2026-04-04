@@ -10,21 +10,30 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::config::{SigletConfig, TransferType};
+use crate::config::{SigletConfig, StorageBackend, TransferType};
 use crate::error::SigletError;
-use crate::handler::SigletDataFlowHandler;
+use crate::handler::refresh::TokenRefreshHandler;
+use crate::handler::{SigletDataFlowHandler, TokenApiHandler};
 use dataplane_sdk::core::db::data_flow::memory::MemoryDataFlowRepo;
 use dataplane_sdk::core::db::memory::MemoryContext;
 use dataplane_sdk::sdk::DataPlaneSdk;
 use dsdk_facet_core::jwt::{
     DidWebVerificationKeyResolver, JwtGenerator, JwtVerifier, LocalJwtVerifier, SigningAlgorithm, VaultJwtGenerator,
 };
-use dsdk_facet_core::token::client::MemoryTokenStore;
-use dsdk_facet_core::token::manager::{JwtTokenManager, MemoryRenewableTokenStore, TokenManager};
+use dsdk_facet_core::lock::{LockManager, MemoryLockManager};
+use dsdk_facet_core::token::client::oauth::OAuth2TokenClient;
+use dsdk_facet_core::token::client::{MemoryTokenStore, TokenClientApi, TokenStore};
+use dsdk_facet_core::token::manager::{JwtTokenManager, MemoryRenewableTokenStore, RenewableTokenStore, TokenManager};
+use dsdk_facet_core::util::encryption::encryption_key;
 use dsdk_facet_core::vault::VaultSigningClient;
 use dsdk_facet_hashicorp_vault::{HashicorpVaultClient, HashicorpVaultConfig, VaultAuthConfig};
+use dsdk_facet_postgres::lock::PostgresLockManager;
+use dsdk_facet_postgres::renewable_token_store::PostgresRenewableTokenStore;
+use dsdk_facet_postgres::token::PostgresTokenStore;
 use rand::Rng;
 use rand::thread_rng;
+use reqwest::Client;
+use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::warn;
@@ -55,39 +64,187 @@ pub const VAULT_TOKEN_TEMP_FILE: &str = "siglet_vault_token";
 pub const RANDOM_SECRET_SIZE_BYTES: usize = 32;
 
 // ============================================================================
-// Assembly Functions
+// Runtime
 // ============================================================================
 
-/// Assembles a memory-based SDK for data plane operations.
+/// The fully assembled Siglet runtime, ready to be handed to the server.
+pub struct SigletRuntime {
+    pub sdk: DataPlaneSdk<MemoryContext>,
+    pub refresh_handler: TokenRefreshHandler,
+    pub token_api_handler: TokenApiHandler,
+}
+
+// ============================================================================
+// Top-Level Assembly
+// ============================================================================
+
+/// Assembles the complete Siglet runtime from configuration.
 ///
-/// This function initializes and configures an in-memory implementation of the data
-/// plane SDK using the provided configuration. The SDK handles token management,
-/// secure flow processing, and context management for in-memory operation.
-pub async fn assemble_memory_sdk(cfg: &SigletConfig) -> Result<DataPlaneSdk<MemoryContext>, SigletError> {
-    let ctx = MemoryContext;
-    let flow_repo = MemoryDataFlowRepo::default();
-
+/// Creates shared services (Vault client, JWT components, token manager) and
+/// delegates store creation to the appropriate backend assembly function based
+/// on `cfg.storage_backend`. The three component assembly functions
+/// (`assemble_memory_sdk`, `assemble_refresh_api`, `assemble_token_api`) all
+/// receive references to the same shared services.
+pub async fn assemble(cfg: &SigletConfig) -> Result<SigletRuntime, SigletError> {
     let vault_client = create_vault_client(cfg).await?;
-
     let (jwt_generator, jwt_verifier) = create_jwt_components(vault_client);
-
-    let token_store = Arc::new(MemoryTokenStore::default());
-    let renewable_token_store = Arc::new(MemoryRenewableTokenStore::default());
-
     let server_secret = generate_server_secret(cfg)?;
 
-    let token_manager = create_token_manager(cfg, jwt_generator, jwt_verifier, server_secret, renewable_token_store);
+    let (token_store, renewable_token_store, lock_manager) = match cfg.storage_backend {
+        StorageBackend::Memory => assemble_memory_stores(),
+        StorageBackend::Postgres => {
+            let url = cfg.postgres_url.as_deref().ok_or_else(|| {
+                SigletError::InvalidConfiguration("postgres_url is required for the Postgres backend".to_string())
+            })?;
+            let password = cfg.postgres_encryption_password.as_deref().ok_or_else(|| {
+                SigletError::InvalidConfiguration(
+                    "postgres_encryption_password is required for the Postgres backend".to_string(),
+                )
+            })?;
+            let salt = cfg.postgres_encryption_salt.as_deref().ok_or_else(|| {
+                SigletError::InvalidConfiguration(
+                    "postgres_encryption_salt is required for the Postgres backend".to_string(),
+                )
+            })?;
+            assemble_postgres_stores(url, password, salt).await?
+        }
+    };
 
-    let handler = create_handler(cfg, token_store, token_manager);
+    let token_manager = create_token_manager(
+        cfg,
+        jwt_generator.clone(),
+        jwt_verifier,
+        server_secret,
+        renewable_token_store,
+    );
 
-    let sdk = DataPlaneSdk::builder(ctx)
-        .with_repo(flow_repo)
-        .with_handler(handler)
-        .build()
-        .map_err(|e| SigletError::DataPlane(anyhow::anyhow!(e)))?;
+    let sdk = assemble_memory_sdk(cfg, token_store.clone(), token_manager.clone()).await?;
+    let refresh_handler = assemble_refresh_api(token_manager);
+    let token_api_handler = assemble_token_api(token_store, lock_manager, jwt_generator, Client::new(), cfg);
 
-    Ok(sdk)
+    Ok(SigletRuntime {
+        sdk,
+        refresh_handler,
+        token_api_handler,
+    })
 }
+
+// ============================================================================
+// Store Assembly
+// ============================================================================
+
+type StoreBundle = (Arc<dyn TokenStore>, Arc<dyn RenewableTokenStore>, Arc<dyn LockManager>);
+
+/// Assembles in-memory implementations of all stores and the lock manager.
+pub fn assemble_memory_stores() -> StoreBundle {
+    let token_store = Arc::new(MemoryTokenStore::default()) as Arc<dyn TokenStore>;
+    let renewable_token_store = Arc::new(MemoryRenewableTokenStore::default()) as Arc<dyn RenewableTokenStore>;
+    let lock_manager = Arc::new(MemoryLockManager::new()) as Arc<dyn LockManager>;
+    (token_store, renewable_token_store, lock_manager)
+}
+
+/// Assembles Postgres-backed implementations of all stores and the lock manager.
+///
+/// Connects to the database, creates and initializes tables, and returns Arc-wrapped
+/// trait objects. The `encryption_password` and `encryption_salt` are used to derive
+/// the key that encrypts tokens at rest.
+pub async fn assemble_postgres_stores(
+    url: &str,
+    encryption_password: &str,
+    encryption_salt: &str,
+) -> Result<StoreBundle, SigletError> {
+    let pool = PgPool::connect(url)
+        .await
+        .map_err(|e| SigletError::InvalidConfiguration(format!("Failed to connect to Postgres: {}", e)))?;
+
+    let enc_key = encryption_key(encryption_password, encryption_salt)
+        .map_err(|e| SigletError::InvalidConfiguration(format!("Invalid encryption key config: {}", e)))?;
+
+    let token_store = Arc::new(
+        PostgresTokenStore::builder()
+            .pool(pool.clone())
+            .encryption_key(enc_key)
+            .build(),
+    );
+    token_store
+        .initialize()
+        .await
+        .map_err(|e| SigletError::Token(Box::new(e)))?;
+
+    let renewable_token_store = Arc::new(PostgresRenewableTokenStore::new(pool.clone()));
+    renewable_token_store
+        .initialize()
+        .await
+        .map_err(|e| SigletError::Token(Box::new(e)))?;
+
+    let lock_manager = Arc::new(PostgresLockManager::builder().pool(pool).build());
+    lock_manager
+        .initialize()
+        .await
+        .map_err(|e| SigletError::Token(Box::new(e)))?;
+
+    Ok((
+        token_store as Arc<dyn TokenStore>,
+        renewable_token_store as Arc<dyn RenewableTokenStore>,
+        lock_manager as Arc<dyn LockManager>,
+    ))
+}
+
+// ============================================================================
+// Component Assembly
+// ============================================================================
+
+/// Assembles a memory-based SDK for data plane operations using shared services.
+pub async fn assemble_memory_sdk(
+    cfg: &SigletConfig,
+    token_store: Arc<dyn TokenStore>,
+    token_manager: Arc<dyn TokenManager>,
+) -> Result<DataPlaneSdk<MemoryContext>, SigletError> {
+    let ctx = MemoryContext;
+    let flow_repo = MemoryDataFlowRepo::default();
+    let siglet_handler = create_siglet_handler(cfg, token_store, token_manager);
+
+    DataPlaneSdk::builder(ctx)
+        .with_repo(flow_repo)
+        .with_handler(siglet_handler)
+        .build()
+        .map_err(|e| SigletError::DataPlane(anyhow::anyhow!(e)))
+}
+
+/// Assembles the token refresh handler backed by the given token manager.
+pub fn assemble_refresh_api(token_manager: Arc<dyn TokenManager>) -> TokenRefreshHandler {
+    TokenRefreshHandler::builder().token_manager(token_manager).build()
+}
+
+/// Assembles the token management API handler.
+pub fn assemble_token_api(
+    token_store: Arc<dyn TokenStore>,
+    lock_manager: Arc<dyn LockManager>,
+    generator: Arc<dyn JwtGenerator>,
+    http_client: Client,
+    cfg: &SigletConfig,
+) -> TokenApiHandler {
+    let token_client = Arc::new(
+        OAuth2TokenClient::builder()
+            .jwt_generator(generator)
+            .http_client(http_client)
+            .expiration_seconds(3600)
+            .identifier(cfg.token_issuer.as_deref().unwrap_or(DEFAULT_TOKEN_ISSUER).to_string())
+            .build(),
+    );
+    let client_api = Arc::new(
+        TokenClientApi::builder()
+            .token_store(token_store)
+            .token_client(token_client)
+            .lock_manager(lock_manager)
+            .build(),
+    );
+    TokenApiHandler::builder().token_client_api(client_api).build()
+}
+
+// ============================================================================
+// Internal Helpers
+// ============================================================================
 
 /// Creates JWT generator and verifier components
 fn create_jwt_components(vault_client: Arc<HashicorpVaultClient>) -> (Arc<dyn JwtGenerator>, Arc<dyn JwtVerifier>) {
@@ -109,54 +266,32 @@ fn create_jwt_components(vault_client: Arc<HashicorpVaultClient>) -> (Arc<dyn Jw
     (jwt_generator, jwt_verifier)
 }
 
-/// Generates or decodes the server secret for token signing
+/// Generates or decodes the server secret for token signing.
 ///
-/// # Arguments
-/// * `cfg` - Configuration containing optional hex-encoded secret
-///
-/// # Returns
-/// * `Vec<u8>` - The server secret (32 bytes if randomly generated)
-///
-/// # Errors
-/// * Returns error if provided hex secret is invalid
-///
-/// # Security
 /// If no secret is provided in config, generates a random 256-bit (32 byte) secret.
 /// This is acceptable for development/testing but NOT recommended for production.
 fn generate_server_secret(cfg: &SigletConfig) -> Result<Vec<u8>, SigletError> {
     cfg.token_server_secret.as_ref().map_or_else(
         || {
-            // Default: generate a random secret for dev/test
             let mut secret = vec![0u8; RANDOM_SECRET_SIZE_BYTES];
             thread_rng().fill(&mut secret[..]);
             warn!("Generated random secret for token signing - Do not use in production");
             Ok(secret)
         },
         |secret_hex| {
-            // Provided: decode hex string
             hex::decode(secret_hex)
                 .map_err(|e| SigletError::InvalidConfiguration(format!("Invalid server secret hex: {}", e)))
         },
     )
 }
 
-/// Creates the token manager with all dependencies
-///
-/// # Arguments
-/// * `cfg` - Configuration for issuer, refresh endpoint
-/// * `jwt_generator` - JWT generator for creating tokens
-/// * `jwt_verifier` - JWT verifier for validating tokens
-/// * `server_secret` - Secret for signing tokens
-/// * `renewable_token_store` - Store for renewable tokens
-///
-/// # Returns
-/// Arc-wrapped token manager
+/// Creates the token manager with all dependencies.
 fn create_token_manager(
     cfg: &SigletConfig,
     jwt_generator: Arc<dyn JwtGenerator>,
     jwt_verifier: Arc<dyn JwtVerifier>,
     server_secret: Vec<u8>,
-    renewable_token_store: Arc<MemoryRenewableTokenStore>,
+    renewable_token_store: Arc<dyn RenewableTokenStore>,
 ) -> Arc<dyn TokenManager> {
     let issuer = cfg
         .token_issuer
@@ -179,18 +314,10 @@ fn create_token_manager(
     )
 }
 
-/// Builds the data flow handler with token management
-///
-/// # Arguments
-/// * `cfg` - Configuration (for future extensibility)
-/// * `token_store` - Store for client tokens
-/// * `token_manager` - Manager for token operations
-///
-/// # Returns
-/// Configured SigletDataFlowHandler
-fn create_handler(
+/// Builds the data flow handler with token management.
+fn create_siglet_handler(
     cfg: &SigletConfig,
-    token_store: Arc<MemoryTokenStore>,
+    token_store: Arc<dyn TokenStore>,
     token_manager: Arc<dyn TokenManager>,
 ) -> SigletDataFlowHandler {
     let transfer_type_mappings: HashMap<String, TransferType> = cfg
@@ -207,26 +334,20 @@ fn create_handler(
         .build()
 }
 
-/// Creates and initializes a Vault client for JWT signing
+/// Creates and initializes a Vault client for JWT signing.
 async fn create_vault_client(cfg: &SigletConfig) -> Result<Arc<HashicorpVaultClient>, SigletError> {
     let vault_url = cfg
         .vault_url
         .as_ref()
         .ok_or_else(|| SigletError::InvalidConfiguration("vault_url is required".to_string()))?;
 
-    // Determine token file path using pattern matching
     let token_file = match (&cfg.vault_token_file, &cfg.vault_token) {
-        // Use provided token file path (K8s Vault Agent sidecar)
         (Some(token_file_path), _) => std::path::PathBuf::from(token_file_path),
-
-        // Write token to a temporary file (for testing)
         (None, Some(vault_token)) => {
             let token_file = std::env::temp_dir().join(VAULT_TOKEN_TEMP_FILE);
             std::fs::write(&token_file, vault_token)?;
             token_file
         }
-
-        // Neither provided - error
         (None, None) => {
             return Err(SigletError::InvalidConfiguration(
                 "Either vault_token or vault_token_file is required".to_string(),

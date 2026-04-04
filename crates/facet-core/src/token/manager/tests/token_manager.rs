@@ -87,7 +87,7 @@ async fn test_generate_pair_token_is_valid_jwt() {
     // Verify the token using the fixture's verifier
     let claims = fixture
         .verifier
-        .verify_token(&pc, &pair.token)
+        .verify_token(&pc.audience, &pair.token)
         .expect("Token should be valid");
 
     assert_eq!(claims.sub, "did:web:consumer.com");
@@ -136,7 +136,7 @@ async fn test_generate_pair_stores_token_entry() {
     let hash = fixture.manager.hash(&pair.refresh_token).expect("Hash should succeed");
     let entry = fixture
         .store
-        .find_by_renewal(&pc, &hash)
+        .find_by_renewal(&hash)
         .await
         .expect("Entry should be found");
 
@@ -246,7 +246,7 @@ async fn test_renew_success() {
     // Now renew the token
     let renewed_pair = fixture
         .manager
-        .renew(&pc, &bound_token, &original_pair.refresh_token)
+        .renew(&bound_token, &original_pair.refresh_token)
         .await
         .expect("renew should succeed");
 
@@ -298,14 +298,14 @@ async fn test_renew_preserves_subject_and_claims() {
     // Renew
     let renewed_pair = fixture
         .manager
-        .renew(&pc, &bound_token, &original_pair.refresh_token)
+        .renew(&bound_token, &original_pair.refresh_token)
         .await
         .expect("renew should succeed");
 
     // Verify the renewed token
     let claims = fixture
         .verifier
-        .verify_token(&pc, &renewed_pair.token)
+        .verify_token(&pc.audience, &renewed_pair.token)
         .expect("Renewed token should be valid");
 
     assert_eq!(claims.sub, "did:web:consumer.com", "Subject should be preserved");
@@ -351,7 +351,7 @@ async fn test_renew_invalid_refresh_token() {
     .await;
 
     // Try to renew with invalid refresh token
-    let result = fixture.manager.renew(&pc, &bound_token, "invalid_refresh_token").await;
+    let result = fixture.manager.renew(&bound_token, "invalid_refresh_token").await;
 
     assert!(result.is_err(), "Should reject invalid refresh token");
     match result.unwrap_err() {
@@ -392,10 +392,7 @@ async fn test_renew_subject_mismatch() {
     .await;
 
     // Try to renew - should fail due to subject mismatch
-    let result = fixture
-        .manager
-        .renew(&pc, &bound_token, &original_pair.refresh_token)
-        .await;
+    let result = fixture.manager.renew(&bound_token, &original_pair.refresh_token).await;
 
     assert!(result.is_err(), "Should reject subject mismatch");
     match result.unwrap_err() {
@@ -440,10 +437,7 @@ async fn test_renew_missing_token_claim() {
         .expect("Should generate token");
 
     // Try to renew - should fail due to missing token claim
-    let result = fixture
-        .manager
-        .renew(&pc, &bound_token, &original_pair.refresh_token)
-        .await;
+    let result = fixture.manager.renew(&bound_token, &original_pair.refresh_token).await;
 
     assert!(result.is_err(), "Should reject missing token claim");
     match result.unwrap_err() {
@@ -484,10 +478,7 @@ async fn test_renew_token_mismatch() {
     .await;
 
     // Try to renew - should fail due to token mismatch
-    let result = fixture
-        .manager
-        .renew(&pc, &bound_token, &original_pair.refresh_token)
-        .await;
+    let result = fixture.manager.renew(&bound_token, &original_pair.refresh_token).await;
 
     assert!(result.is_err(), "Should reject token mismatch");
     match result.unwrap_err() {
@@ -532,7 +523,7 @@ async fn test_renew_uses_consistent_expiration_time() {
     // Renew - with the same clock, expiration should be the same as original
     let renewed_pair = fixture
         .manager
-        .renew(&pc, &bound_token, &original_pair.refresh_token)
+        .renew(&bound_token, &original_pair.refresh_token)
         .await
         .expect("renew should succeed");
 
@@ -588,14 +579,14 @@ async fn test_round_trip_generate_and_renew() {
     // Step 3: Renew the token
     let renewed_pair = fixture
         .manager
-        .renew(&pc, &bound_token, &original_pair.refresh_token)
+        .renew(&bound_token, &original_pair.refresh_token)
         .await
         .expect("renew should succeed");
 
     // Step 4: Verify the renewed token
     let claims = fixture
         .verifier
-        .verify_token(&pc, &renewed_pair.token)
+        .verify_token(&pc.audience, &renewed_pair.token)
         .expect("Renewed token should be valid");
 
     assert_eq!(claims.sub, "did:web:consumer.com");
@@ -638,7 +629,7 @@ async fn test_round_trip_multiple_renewals() {
 
         let renewed_pair = fixture
             .manager
-            .renew(&pc, &bound_token, &current_pair.refresh_token)
+            .renew(&bound_token, &current_pair.refresh_token)
             .await
             .unwrap_or_else(|_| panic!("Renewal {} should succeed", i));
 
@@ -689,7 +680,7 @@ async fn test_round_trip_old_refresh_token_invalid_after_renewal() {
     // First renewal
     let renewed_pair = fixture
         .manager
-        .renew(&pc, &bound_token1, &original_pair.refresh_token)
+        .renew(&bound_token1, &original_pair.refresh_token)
         .await
         .expect("First renewal should succeed");
 
@@ -703,10 +694,7 @@ async fn test_round_trip_old_refresh_token_invalid_after_renewal() {
     )
     .await;
 
-    let result = fixture
-        .manager
-        .renew(&pc, &bound_token2, &original_pair.refresh_token)
-        .await;
+    let result = fixture.manager.renew(&bound_token2, &original_pair.refresh_token).await;
 
     assert!(result.is_err(), "Old refresh token should not work after renewal");
 
@@ -720,48 +708,9 @@ async fn test_round_trip_old_refresh_token_invalid_after_renewal() {
     )
     .await;
 
-    let result = fixture
-        .manager
-        .renew(&pc, &bound_token3, &renewed_pair.refresh_token)
-        .await;
+    let result = fixture.manager.renew(&bound_token3, &renewed_pair.refresh_token).await;
 
     assert!(result.is_ok(), "New refresh token should work");
-}
-
-#[tokio::test]
-async fn test_security_different_participants_isolated() {
-    let fixed_time = DateTime::from_timestamp(1000000000, 0).unwrap();
-    let clock = Arc::new(MockClock::new(fixed_time)) as Arc<dyn Clock>;
-    let fixture = create_jwt_token_manager(clock.clone());
-
-    let pc1 = ParticipantContext::builder()
-        .id("12345")
-        .identifier("did:web:provider.com")
-        .audience("did:web:provider.com")
-        .build();
-
-    let pc2 = ParticipantContext::builder()
-        .id("did:web:provider2.com")
-        .identifier("did:web:provider2.com")
-        .audience("did:web:provider2.com")
-        .build();
-
-    // Generate token for participant1
-    let pair1 = fixture
-        .manager
-        .generate_pair(&pc1, "did:web:consumer.com", HashMap::new(), "test_flow".to_string())
-        .await
-        .expect("generate_pair should succeed");
-
-    // Try to use participant1's refresh token with participant2 context
-    let bound_token = create_bound_token(&fixture, &pc2, "did:web:consumer.com", &pair1.token, clock.clone()).await;
-
-    let result = fixture.manager.renew(&pc2, &bound_token, &pair1.refresh_token).await;
-
-    assert!(
-        result.is_err(),
-        "Should not be able to use participant1's token with participant2 context"
-    );
 }
 
 /// Test fixture containing all the components needed for testing
@@ -838,15 +787,15 @@ async fn create_bound_token(
     access_token: &str,
     clock: Arc<dyn Clock>,
 ) -> String {
-    let mut custom = serde_json::Map::new();
-    custom.insert("token".to_string(), Value::String(access_token.to_string()));
-
     let claims = TokenClaims::builder()
         .iss("did:web:issuer.com")
         .sub(subject)
         .aud(participant_context.identifier.clone())
         .exp(clock.now().timestamp() + 300) // 5 minutes
-        .custom(custom)
+        .custom(serde_json::Map::from_iter([(
+            "token".to_string(),
+            Value::String(access_token.to_string()),
+        )]))
         .build();
 
     fixture
@@ -873,7 +822,7 @@ async fn test_revoke_token_success() {
         .expect("Failed to generate pair");
 
     // Verify token exists
-    let entry_before = fixture.store.find_by_flow_id(&pc, "flow_123").await;
+    let entry_before = fixture.store.find_by_flow_id("flow_123").await;
     assert!(entry_before.is_ok(), "Token should exist before revocation");
 
     // Revoke the token
@@ -881,7 +830,7 @@ async fn test_revoke_token_success() {
     assert!(result.is_ok(), "Revoke should succeed");
 
     // Verify token no longer exists
-    let entry_after = fixture.store.find_by_flow_id(&pc, "flow_123").await;
+    let entry_after = fixture.store.find_by_flow_id("flow_123").await;
     assert!(entry_after.is_err(), "Token should not exist after revocation");
 }
 
@@ -920,7 +869,7 @@ async fn test_revoke_token_removes_from_all_indices() {
     // Get the entry to extract id and hash
     let entry = fixture
         .store
-        .find_by_flow_id(&pc, "flow_456")
+        .find_by_flow_id("flow_456")
         .await
         .expect("Token should exist");
 
@@ -928,9 +877,9 @@ async fn test_revoke_token_removes_from_all_indices() {
     let hashed_refresh = entry.hashed_refresh_token.clone();
 
     // Verify token exists in all indices
-    assert!(fixture.store.find_by_id(&pc, &token_id).await.is_ok());
-    assert!(fixture.store.find_by_renewal(&pc, &hashed_refresh).await.is_ok());
-    assert!(fixture.store.find_by_flow_id(&pc, "flow_456").await.is_ok());
+    assert!(fixture.store.find_by_id(&token_id).await.is_ok());
+    assert!(fixture.store.find_by_renewal(&hashed_refresh).await.is_ok());
+    assert!(fixture.store.find_by_flow_id("flow_456").await.is_ok());
 
     // Revoke the token
     fixture
@@ -940,49 +889,7 @@ async fn test_revoke_token_removes_from_all_indices() {
         .expect("Revoke should succeed");
 
     // Verify token removed from all indices
-    assert!(fixture.store.find_by_id(&pc, &token_id).await.is_err());
-    assert!(fixture.store.find_by_renewal(&pc, &hashed_refresh).await.is_err());
-    assert!(fixture.store.find_by_flow_id(&pc, "flow_456").await.is_err());
-}
-
-#[tokio::test]
-async fn test_revoke_token_context_isolation() {
-    let clock = Arc::new(MockClock::new(DateTime::from_timestamp(1000000000, 0).unwrap()));
-    let fixture = create_jwt_token_manager(clock);
-    let pc1 = ParticipantContext::builder()
-        .id("participant1")
-        .identifier("did:web:provider1.com")
-        .build();
-    let pc2 = ParticipantContext::builder()
-        .id("participant2")
-        .identifier("did:web:provider2.com")
-        .build();
-
-    // Generate tokens for both participants with same flow_id
-    fixture
-        .manager
-        .generate_pair(&pc1, "did:web:consumer.com", HashMap::new(), "shared_flow".to_string())
-        .await
-        .expect("Failed to generate pair for pc1");
-
-    fixture
-        .manager
-        .generate_pair(&pc2, "did:web:consumer.com", HashMap::new(), "shared_flow".to_string())
-        .await
-        .expect("Failed to generate pair for pc2");
-
-    // Revoke pc1's token
-    fixture
-        .manager
-        .revoke_token(&pc1, "shared_flow")
-        .await
-        .expect("Revoke should succeed for pc1");
-
-    // Verify pc1's token is gone
-    let result_pc1 = fixture.store.find_by_flow_id(&pc1, "shared_flow").await;
-    assert!(result_pc1.is_err(), "pc1's token should be revoked");
-
-    // Verify pc2's token still exists
-    let result_pc2 = fixture.store.find_by_flow_id(&pc2, "shared_flow").await;
-    assert!(result_pc2.is_ok(), "pc2's token should still exist");
+    assert!(fixture.store.find_by_id(&token_id).await.is_err());
+    assert!(fixture.store.find_by_renewal(&hashed_refresh).await.is_err());
+    assert!(fixture.store.find_by_flow_id("flow_456").await.is_err());
 }

@@ -57,9 +57,9 @@ async fn test_get_token_not_expiring_does_not_refresh() {
         .refresh_before_expiry_ms(5_000)
         .build();
 
-    let pc = &ParticipantContext::builder().id("participant1").build();
+    let pc = ParticipantContext::builder().id("participant1").build();
 
-    let result = token_api.get_token(pc, "identifier1", "owner1").await.unwrap();
+    let result = token_api.get_token(&pc, "identifier1", "owner1").await.unwrap();
     assert_eq!(result.token, "active_token");
 }
 
@@ -137,9 +137,9 @@ async fn test_get_token_expiring_soon_triggers_refresh() {
     // Advance time so the token is within the 5s refresh threshold
     clock.advance(TimeDelta::seconds(6));
 
-    let pc = &ParticipantContext::builder().id("participant1").build();
+    let pc = ParticipantContext::builder().id("participant1").build();
 
-    let result = token_api.get_token(pc, "identifier1", "owner1").await.unwrap();
+    let result = token_api.get_token(&pc, "identifier1", "owner1").await.unwrap();
     assert_eq!(result.token, "new_token");
 }
 
@@ -203,9 +203,9 @@ async fn test_get_token_expired_triggers_refresh() {
         .clock(clock)
         .build();
 
-    let pc = &ParticipantContext::builder().id("participant1").build();
+    let pc = ParticipantContext::builder().id("participant1").build();
 
-    let result = token_api.get_token(pc, "identifier1", "owner1").await.unwrap();
+    let result = token_api.get_token(&pc, "identifier1", "owner1").await.unwrap();
     assert_eq!(result.token, "refreshed_token");
 }
 
@@ -273,9 +273,9 @@ async fn test_refresh_updates_stored_token() {
 
     clock.advance(TimeDelta::seconds(4));
 
-    let pc = &ParticipantContext::builder().id("participant1").build();
+    let pc = ParticipantContext::builder().id("participant1").build();
 
-    let _ = token_api.get_token(pc, "identifier1", "owner1").await.unwrap();
+    let _ = token_api.get_token(&pc, "identifier1", "owner1").await.unwrap();
 }
 
 #[tokio::test]
@@ -325,9 +325,9 @@ async fn test_refresh_failure_returns_error() {
 
     clock.advance(TimeDelta::seconds(4));
 
-    let pc = &ParticipantContext::builder().id("participant1").build();
+    let pc = ParticipantContext::builder().id("participant1").build();
 
-    let result = token_api.get_token(pc, "identifier1", "owner1").await;
+    let result = token_api.get_token(&pc, "identifier1", "owner1").await;
     assert!(result.is_err());
 }
 
@@ -394,10 +394,10 @@ async fn test_lock_acquired_during_refresh() {
 
     clock.advance(TimeDelta::seconds(4));
 
-    let pc = &ParticipantContext::builder().id("participant1").build();
+    let pc = ParticipantContext::builder().id("participant1").build();
 
     // Trigger refresh which should acquire the lock
-    let _ = token_api.get_token(pc, "identifier1", "owner1").await.unwrap();
+    let _ = token_api.get_token(&pc, "identifier1", "owner1").await.unwrap();
 
     // Verify that lock was called (it was expected above)
 }
@@ -452,10 +452,10 @@ async fn test_lock_prevents_concurrent_refresh() {
 
     clock.advance(TimeDelta::seconds(4));
 
-    let pc = &ParticipantContext::builder().id("participant1").build();
+    let pc = ParticipantContext::builder().id("participant1").build();
 
     // Attempt to get token should fail (cannot acquire lock)
-    let result = token_api.get_token(pc, "identifier1", "owner1").await;
+    let result = token_api.get_token(&pc, "identifier1", "owner1").await;
     assert!(result.is_err(), "Should fail when lock is held by another owner");
 }
 
@@ -482,9 +482,9 @@ async fn test_token_not_found_error() {
         .token_client(Arc::new(token_client))
         .build();
 
-    let pc = &ParticipantContext::builder().id("participant1").build();
+    let pc = ParticipantContext::builder().id("participant1").build();
 
-    let result = token_api.get_token(pc, "nonexistent", "owner1").await;
+    let result = token_api.get_token(&pc, "nonexistent", "owner1").await;
     assert!(result.is_err());
 
     match result.unwrap_err() {
@@ -558,9 +558,9 @@ async fn test_refresh_with_custom_refresh_threshold() {
 
     clock.advance(TimeDelta::seconds(11));
 
-    let pc = &ParticipantContext::builder().id("participant1").build();
+    let pc = ParticipantContext::builder().id("participant1").build();
 
-    let result = token_api.get_token(pc, "identifier1", "owner1").await.unwrap();
+    let result = token_api.get_token(&pc, "identifier1", "owner1").await.unwrap();
     assert_eq!(result.token, "refreshed");
 }
 
@@ -651,13 +651,13 @@ async fn test_multiple_tokens_independent_refresh() {
 
     clock.advance(TimeDelta::seconds(4));
 
-    let pc = &ParticipantContext::builder().id("participant1").build();
+    let pc = ParticipantContext::builder().id("participant1").build();
 
     // token1 should trigger refresh
-    let result1 = token_api.get_token(pc, "token1", "owner1").await.unwrap();
+    let result1 = token_api.get_token(&pc, "token1", "owner1").await.unwrap();
     assert_eq!(result1.token, "refreshed1");
 
     // token2 should not refresh
-    let result2 = token_api.get_token(pc, "token2", "owner1").await.unwrap();
+    let result2 = token_api.get_token(&pc, "token2", "owner1").await.unwrap();
     assert_eq!(result2.token, "token2");
 }

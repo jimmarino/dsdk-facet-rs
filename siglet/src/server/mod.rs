@@ -30,6 +30,7 @@ use tracing::{error, info};
 
 use crate::assembly::DEFAULT_PARTICIPANT_ID;
 use crate::error::SigletError;
+use crate::handler::TokenApiHandler;
 
 #[cfg(test)]
 mod tests;
@@ -68,6 +69,7 @@ pub async fn run_server(
     signaling_port: u16,
     siglet_api_port: u16,
     sdk: DataPlaneSdk<MemoryContext>,
+    token_api_handler: TokenApiHandler,
 ) -> Result<(), SigletError> {
     let mut join_set = JoinSet::new();
     let cancel_token = CancellationToken::new();

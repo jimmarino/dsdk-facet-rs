@@ -30,9 +30,9 @@ fn create_participant(identifier: &str) -> ParticipantContext {
 
 /// Helper function to set up rules for a participant
 async fn setup_rules(evaluator: &MemoryAuthorizationEvaluator, participant_id: &str, rules: Vec<Rule>) {
-    let ctx = &ParticipantContext::builder().id(participant_id).build();
+    let ctx = ParticipantContext::builder().id(participant_id).build();
     for rule in rules {
-        evaluator.save_rule(ctx, rule).await.unwrap();
+        evaluator.save_rule(&ctx, rule).await.unwrap();
     }
 }
 

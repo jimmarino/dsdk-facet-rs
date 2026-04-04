@@ -14,44 +14,11 @@
 
 use crate::error::SigletError;
 use crate::server::handle_task_result;
+use dsdk_facet_testcontainers::utils::{get_available_port, wait_for_port_ready};
 use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::task::{JoinError, JoinSet};
 use tokio_util::sync::CancellationToken;
-
-// ============================================================================
-// Test Helpers
-// ============================================================================
-
-/// Find an available port by binding to port 0 and returning the assigned port
-///
-/// This allows tests to use specific ports for synchronization while avoiding conflicts
-fn find_available_port() -> u16 {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-    drop(listener); // Release the port for the test to use
-    port
-}
-
-/// Wait for a server port to be ready by attempting TCP connections
-///
-/// This is more efficient and reliable than arbitrary sleep durations:
-/// - Returns immediately when server is ready (typically <10ms)
-/// - Works reliably on both fast and slow machines
-/// - Tests actual server readiness (port accepting connections)
-async fn wait_for_port_ready(addr: SocketAddr, timeout: Duration) -> Result<(), String> {
-    let deadline = tokio::time::Instant::now() + timeout;
-
-    while tokio::time::Instant::now() < deadline {
-        if tokio::net::TcpStream::connect(addr).await.is_ok() {
-            return Ok(());
-        }
-        // Brief sleep between connection attempts to avoid spinning
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-
-    Err(format!("Server at {} did not become ready within {:?}", addr, timeout))
-}
 
 // ============================================================================
 // handle_task_result() Tests
@@ -171,7 +138,7 @@ async fn test_cancellation_token_stops_server() {
     use std::net::{IpAddr, Ipv4Addr};
 
     let bind = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-    let port = find_available_port();
+    let port = get_available_port();
     let cancel_token = CancellationToken::new();
     let cancel_token_clone = cancel_token.clone();
 
@@ -200,7 +167,7 @@ async fn test_server_graceful_shutdown_with_cancellation() {
     use std::net::{IpAddr, Ipv4Addr};
 
     let bind = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-    let port = find_available_port();
+    let port = get_available_port();
     let cancel_token = CancellationToken::new();
     let cancel_token_clone = cancel_token.clone();
 
