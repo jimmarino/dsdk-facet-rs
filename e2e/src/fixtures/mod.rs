@@ -10,5 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+//! Shared test fixtures — cluster state managed once per test process.
+
+pub mod consumer_did;
 pub mod siglet;
-pub mod vault_sidecar;

@@ -59,6 +59,22 @@ pub fn generate_rsa_keypair_pem() -> Result<RsaKeypair, JwtGenerationError> {
     })
 }
 
+/// Generates an Ed25519 keypair from a fixed 32-byte seed (deterministic).
+/// Use this in tests to produce a stable key pair across process restarts.
+pub fn generate_ed25519_keypair_der_from_seed(seed: &[u8; 32]) -> Result<Ed25519Keypair, JwtGenerationError> {
+    let signing_key = SigningKey::from_bytes(seed);
+    let private_key = signing_key
+        .to_pkcs8_der()
+        .map(|doc| doc.as_bytes().to_vec())
+        .map_err(|e| JwtGenerationError::GenerationError(format!("Failed to encode private key: {}", e)))?;
+    let verifying_key = signing_key.verifying_key();
+    let public_key = verifying_key.to_bytes().to_vec();
+    Ok(Ed25519Keypair {
+        private_key,
+        public_key,
+    })
+}
+
 /// Generates an Ed25519 keypair for DER format.
 pub fn generate_ed25519_keypair_der() -> Result<Ed25519Keypair, JwtGenerationError> {
     let mut rng = rand::rng();

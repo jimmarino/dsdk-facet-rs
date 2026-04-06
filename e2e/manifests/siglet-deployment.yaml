@@ -69,6 +69,8 @@ spec:
           value: "siglet-e2e"
         - name: SIGLET_TOKEN_REFRESH_ENDPOINT
           value: "http://siglet:8080/token/refresh"
+        - name: SIGLET_USE_HTTP_RESOLUTION
+          value: "true"
         volumeMounts:
         - name: siglet-config
           mountPath: /config

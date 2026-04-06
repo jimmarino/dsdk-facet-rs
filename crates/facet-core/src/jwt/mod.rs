@@ -448,18 +448,11 @@ impl DidWebVerificationKeyResolver {
                 JwtVerificationError::VerificationFailed(format!("Failed to decode publicKeyMultibase: {}", e))
             })?;
 
-            // Convert raw Ed25519 public key bytes to DER format for jsonwebtoken
-            // Ed25519 public key DER prefix: 302a300506032b6570032100
-            let mut der_bytes = vec![
-                0x30, 0x2a, // SEQUENCE, length 42
-                0x30, 0x05, // SEQUENCE, length 5
-                0x06, 0x03, 0x2b, 0x65, 0x70, // OID 1.3.101.112 (Ed25519)
-                0x03, 0x21, 0x00, // BIT STRING, length 33, 0 unused bits
-            ];
-            der_bytes.extend_from_slice(&key_bytes);
-
+            // jsonwebtoken v10's DecodingKey::from_ed_der expects the raw 32-byte Ed25519
+            // public key, NOT a SubjectPublicKeyInfo DER wrapper. This matches how
+            // StaticVerificationKeyResolver passes keys in unit tests.
             return Ok(KeyMaterial::builder()
-                .key(der_bytes)
+                .key(key_bytes)
                 .key_format(KeyFormat::DER)
                 .iss(iss)
                 .kid(kid)
@@ -504,10 +497,12 @@ impl VerificationKeyResolver for DidWebVerificationKeyResolver {
         // Convert did:web to HTTP(S) URL
         let url = self.did_web_to_url(&base_did)?;
 
-        // Execute async code using the current tokio runtime handle
-        // Note: This requires being called from within a tokio runtime context
+        // Execute the async HTTP fetch from this sync trait method.
+        // `block_in_place` temporarily moves other tokio tasks off this thread so we can
+        // block it without deadlocking the runtime. This is required when calling sync
+        // code that needs async I/O from within an async context (e.g., an Axum handler).
         let handle = tokio::runtime::Handle::current();
-        let doc = handle.block_on(self.fetch_did_document(&url))?;
+        let doc = tokio::task::block_in_place(|| handle.block_on(self.fetch_did_document(&url)))?;
 
         // Find the verification method
         let vm = Self::find_verification_method(&doc, &fragment)?;

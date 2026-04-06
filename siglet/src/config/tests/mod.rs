@@ -59,6 +59,7 @@ fn test_valid_config_with_all_fields() {
                 .token_source(TokenSource::Provider)
                 .build(),
         ],
+        use_http_resolution: false,
         vault_url: Some("https://vault.example.com:8200".to_string()),
         vault_token: Some("hvs.test-token-12345".to_string()),
         vault_token_file: None,
@@ -574,6 +575,7 @@ fn test_all_possible_errors() {
                 .token_source(TokenSource::Provider)
                 .build(),
         ],
+        use_http_resolution: false,
         vault_url: None,   // Error 6
         vault_token: None, // Error 7 (combined)
         vault_token_file: None,

@@ -217,6 +217,7 @@ impl SigletDataFlowHandler {
         ParticipantContext::builder()
             .id(flow.participant_context_id.clone())
             .identifier(flow.participant_id.clone())
+            .audience(flow.participant_id.clone())
             .build()
     }
 

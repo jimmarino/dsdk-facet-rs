@@ -31,6 +31,7 @@ use tracing::{error, info};
 use crate::assembly::DEFAULT_PARTICIPANT_ID;
 use crate::error::SigletError;
 use crate::handler::TokenApiHandler;
+use crate::handler::refresh::TokenRefreshHandler;
 
 #[cfg(test)]
 mod tests;
@@ -69,7 +70,8 @@ pub async fn run_server(
     signaling_port: u16,
     siglet_api_port: u16,
     sdk: DataPlaneSdk<MemoryContext>,
-    token_api_handler: TokenApiHandler,
+    refresh_handler: TokenRefreshHandler,
+    _token_api_handler: TokenApiHandler,
 ) -> Result<(), SigletError> {
     let mut join_set = JoinSet::new();
     let cancel_token = CancellationToken::new();
@@ -82,7 +84,12 @@ pub async fn run_server(
         cancel_token.clone(),
     ));
 
-    join_set.spawn(run_siglet_api(bind, siglet_api_port, cancel_token.clone()));
+    join_set.spawn(run_siglet_api(
+        bind,
+        siglet_api_port,
+        refresh_handler,
+        cancel_token.clone(),
+    ));
 
     info!("Ready");
 
@@ -189,12 +196,17 @@ async fn run_signaling_api(
 /// This function binds to the specified address and runs until either:
 /// - The cancellation token is triggered
 /// - An error occurs
-async fn run_siglet_api(bind: IpAddr, port: u16, cancel_token: CancellationToken) -> Result<(), SigletError> {
+async fn run_siglet_api(
+    bind: IpAddr,
+    port: u16,
+    refresh_handler: TokenRefreshHandler,
+    cancel_token: CancellationToken,
+) -> Result<(), SigletError> {
     let addr: SocketAddr = format!("{}:{}", bind, port)
         .parse()
         .map_err(|e: std::net::AddrParseError| SigletError::Network(Box::new(e)))?;
 
-    let app = create_router();
+    let app = create_router().merge(refresh_handler.router());
 
     info!("Siglet API listening on {}", addr);
 

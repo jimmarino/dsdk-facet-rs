@@ -17,15 +17,15 @@
 //!
 //! Note: These tests share a single Siglet deployment and can run in parallel.
 
+use crate::fixtures::consumer_did::ensure_consumer_did;
+use crate::fixtures::siglet::ensure_siglet_deployed;
 use crate::utils::*;
 use anyhow::{Context, Result};
-use dsdk_facet_testcontainers::utils::get_available_port;
+use dsdk_facet_core::context::ParticipantContext;
+use dsdk_facet_core::jwt::jwtutils::StaticSigningKeyResolver;
+use dsdk_facet_core::jwt::{JwtGenerator, KeyFormat, LocalJwtGenerator, SigningAlgorithm, TokenClaims};
 use reqwest::Client;
 use std::sync::Arc;
-use tokio::sync::OnceCell;
-
-/// Shared Siglet deployment state
-static SIGLET_DEPLOYMENT: OnceCell<Arc<SigletDeployment>> = OnceCell::const_new();
 
 /// Test that Siglet deploys successfully and responds to health checks
 #[tokio::test]
@@ -42,7 +42,6 @@ async fn test_siglet_deployment_and_health() -> Result<()> {
         &["wget", "-q", "-O-", "http://localhost:8080/health"],
     )?;
 
-    // Verify health response contains expected status
     assert!(
         health_response.contains("healthy"),
         "Health endpoint should return healthy status"
@@ -56,7 +55,6 @@ async fn test_siglet_deployment_and_health() -> Result<()> {
         &["wget", "-q", "-O-", "http://localhost:8080/"],
     )?;
 
-    // Verify root response contains expected metadata
     assert!(
         root_response.contains("Siglet"),
         "Root endpoint should return Siglet metadata"
@@ -68,9 +66,7 @@ async fn test_siglet_deployment_and_health() -> Result<()> {
     );
 
     let logs = get_pod_logs(E2E_NAMESPACE, pod_name, "siglet")?;
-    // println!("Siglet logs:\n{}", logs);
 
-    // Verify startup messages in logs
     assert!(logs.contains("Siglet API"), "Logs should indicate Siglet API started");
     assert!(
         logs.contains("Signaling API"),
@@ -87,29 +83,78 @@ async fn test_siglet_deployment_and_health() -> Result<()> {
 /// - Consumer calls prepare endpoint (no data address returned)
 /// - Provider calls start endpoint and returns data address with tokens
 /// - Consumer calls started endpoint with provider's data address
+/// - Consumer refreshes the access token
 /// - Provider terminates the transfer
 #[tokio::test]
 #[ignore]
 async fn test_pull_operations() -> Result<()> {
     let deployment = ensure_siglet_deployed().await?;
+    let key_material = ensure_consumer_did().await?;
+    let private_key_der = key_material.private_key_der.to_vec();
 
-    // Get the port-forwarded URL for the Signaling API
+    // Pre-flight: verify the DID document served by the consumer-did pod contains the
+    // expected public key before making any API calls. If this fails the signing key the
+    // test uses won't match what Siglet fetches from the DID server, causing an opaque
+    // "Invalid token signature" at the refresh step.
+    {
+        let did_doc_raw = kubectl_exec(
+            E2E_NAMESPACE,
+            &deployment.pod_name,
+            "siglet",
+            &["sh", "-c", "wget -q -O- http://consumer/.well-known/did.json"],
+        )
+        .context("Failed to fetch consumer DID document from inside siglet pod")?;
+
+        let did_doc: serde_json::Value =
+            serde_json::from_str(&did_doc_raw).context("Failed to parse consumer DID document")?;
+
+        let served_multibase = did_doc
+            .get("verificationMethod")
+            .and_then(|vms| vms.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|vm| vm.get("publicKeyMultibase"))
+            .and_then(|v| v.as_str())
+            .context("No publicKeyMultibase in served DID document")?;
+
+        let expected_multibase = String::from_utf8(
+            read_secret_bytes(E2E_NAMESPACE, "consumer-did-private-key", "publicKeyMultibase")
+                .context("Failed to read expected public key from consumer-did-private-key secret")?,
+        )
+        .context("Non-UTF8 public key multibase in secret")?;
+
+        assert_eq!(
+            served_multibase, expected_multibase,
+            "DID document public key mismatch: the consumer-did pod is not serving the key from setup.sh.\n\
+             Served:   {}\n\
+             Expected: {}\n\
+             Re-run 'cd e2e && ./scripts/setup.sh' to reprovision the consumer DID server.",
+            served_multibase, expected_multibase
+        );
+        println!("DID document key verified: {}", &served_multibase[..20]);
+    }
+
     let signaling_url = format!("http://localhost:{}", deployment.signaling_port);
-
-    // Create HTTP client
     let client = Client::new();
+
+    // Use unique IDs per run so retries don't collide with flows left in Siglet state
+    // from a prior attempt.
+    let run_id = uuid::Uuid::new_v4().to_string();
+    let dataset_id = format!("dataset-{}", run_id);
+    let agreement_id = format!("agreement-{}", run_id);
+    let consumer_flow_id = format!("consumer-flow-{}", run_id);
+    let provider_flow_id = format!("provider-flow-{}", run_id);
 
     // Step 1: Consumer calls prepare endpoint
     let prepare_message = serde_json::json!({
-        "datasetId": "test-dataset-123",
-        "participantId": "did:web:consumer.example.com",
-        "processId": "test-consumer-process-456",
-        "agreementId": "test-agreement-789",
+        "datasetId": dataset_id,
+        "participantId": "did:web:consumer",
+        "processId": consumer_flow_id,
+        "agreementId": agreement_id,
         "transferType": "http-pull",
         "dataspaceContext": "test-dataspace",
         "callbackAddress": "https://consumer.example.com/callback",
-        "messageId": "msg-prepare-001",
-        "counterPartyId": "did:web:provider.example.com",
+        "messageId": format!("msg-prepare-{}", run_id),
+        "counterPartyId": "did:web:provider",
         "labels": [],
         "metadata": {},
     });
@@ -135,7 +180,6 @@ async fn test_pull_operations() -> Result<()> {
         .context("Failed to parse prepare response")?;
 
     // Verify prepare response does NOT contain a meaningful dataAddress (it's a pull)
-    // The field might be present but should be null or empty
     if let Some(data_address) = prepare_result.get("dataAddress") {
         assert!(
             data_address.is_null(),
@@ -146,15 +190,15 @@ async fn test_pull_operations() -> Result<()> {
 
     // Step 2: Provider calls start endpoint
     let start_message = serde_json::json!({
-        "datasetId": "test-dataset-123",
-        "participantId": "did:web:provider.example.com",
-        "processId": "test-provider-process-456",
-        "agreementId": "test-agreement-789",
+        "datasetId": dataset_id,
+        "participantId": "did:web:provider",
+        "processId": provider_flow_id,
+        "agreementId": agreement_id,
         "transferType": "http-pull",
         "dataspaceContext": "test-dataspace",
         "callbackAddress": "https://provider.example.com/callback",
-        "messageId": "msg-start-001",
-        "counterPartyId": "did:web:consumer.example.com",
+        "messageId": format!("msg-start-{}", run_id),
+        "counterPartyId": "did:web:consumer",
         "labels": [],
         "metadata": {
             "claim1": "claimvalue1",
@@ -179,7 +223,6 @@ async fn test_pull_operations() -> Result<()> {
 
     let start_result: serde_json::Value = start_response.json().await.context("Failed to parse start response")?;
 
-    // Verify the response contains expected fields
     assert!(
         start_result.get("state").is_some(),
         "Response should contain 'state' field"
@@ -190,13 +233,9 @@ async fn test_pull_operations() -> Result<()> {
     );
 
     let state = start_result["state"].as_str().unwrap();
-
-    // The state should be "STARTED" for http-pull transfers with token provider
     assert_eq!(state, "STARTED", "DataFlow should be in STARTED state");
 
-    // Check if data address was returned with auth properties
     let data_address = start_result.get("dataAddress").unwrap();
-
     let properties = data_address.get("endpointProperties").unwrap();
     let properties_array = properties.as_array().unwrap();
 
@@ -205,7 +244,6 @@ async fn test_pull_operations() -> Result<()> {
         .any(|p| p.get("name").and_then(|n| n.as_str()) == Some("authorization"));
     assert!(has_auth, "Authorization property not found in data address");
 
-    // Extract the JWT token for inspection
     let auth_prop = properties_array
         .iter()
         .find(|p| p.get("name").and_then(|n| n.as_str()) == Some("authorization"))
@@ -222,7 +260,6 @@ async fn test_pull_operations() -> Result<()> {
         "JWT should have 3 parts (header.payload.signature)"
     );
 
-    // Decode the payload (second part) from base64
     use base64::Engine;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     let payload_bytes = URL_SAFE_NO_PAD
@@ -232,7 +269,6 @@ async fn test_pull_operations() -> Result<()> {
     let jwt_payload: serde_json::Value =
         serde_json::from_str(&payload_str).context("Failed to parse JWT payload as JSON")?;
 
-    // Verify the metadata claims are present in the JWT
     assert_eq!(
         jwt_payload.get("claim1").and_then(|v| v.as_str()),
         Some("claimvalue1"),
@@ -244,13 +280,11 @@ async fn test_pull_operations() -> Result<()> {
         "claim2 should be present in JWT with correct value"
     );
 
-    // Check for refresh token
     let has_refresh = properties_array
         .iter()
         .any(|p| p.get("name").and_then(|n| n.as_str()) == Some("refreshToken"));
     assert!(has_refresh, "Refresh token not found in data address");
 
-    // Check for refresh endpoint
     let has_endpoint = properties_array
         .iter()
         .any(|p| p.get("name").and_then(|n| n.as_str()) == Some("refreshEndpoint"));
@@ -258,13 +292,11 @@ async fn test_pull_operations() -> Result<()> {
 
     // Step 3: Consumer calls started endpoint with provider's data address
     let started_message = serde_json::json!({
-        "participantId": "did:web:consumer.example.com",
-        "counterPartyId": "did:web:provider.example.com",
+        "participantId": "did:web:consumer",
+        "counterPartyId": "did:web:provider",
         "dataAddress": data_address,
-        "messageId": "msg-started-001"
+        "messageId": format!("msg-started-{}", run_id)
     });
-
-    let consumer_flow_id = "test-consumer-process-456";
 
     let started_response = client
         .post(format!(
@@ -272,7 +304,6 @@ async fn test_pull_operations() -> Result<()> {
             signaling_url, consumer_flow_id
         ))
         .header("Content-Type", "application/json")
-        .header("X-Participant-Id", "test-participant-context")
         .json(&started_message)
         .send()
         .await
@@ -290,12 +321,99 @@ async fn test_pull_operations() -> Result<()> {
         );
     }
 
-    // Step 4: Provider terminates the transfer
-    let terminate_message = serde_json::json!({
-        "reason": "Test termination"
-    });
+    // Step 4: Consumer refreshes the access token.
+    // The refresh endpoint is on the siglet API port (8080) inside the cluster.
+    // We use `kubectl exec` + curl to call it via localhost inside the pod rather
+    // than a port-forward, which is unreliable for the siglet API port on macOS.
+    let refresh_token_prop = properties_array
+        .iter()
+        .find(|p| p.get("name").and_then(|n| n.as_str()) == Some("refreshToken"))
+        .unwrap();
+    let refresh_token_value = refresh_token_prop.get("value").and_then(|v| v.as_str()).unwrap();
 
-    let provider_flow_id = "test-provider-process-456";
+    // Build a JWT to authenticate the refresh request (consumer signs as itself, audience = provider).
+    let resolver = Arc::new(
+        StaticSigningKeyResolver::builder()
+            .key(private_key_der)
+            .key_format(KeyFormat::DER)
+            .iss("did:web:consumer")
+            .kid("did:web:consumer#key-1")
+            .build(),
+    );
+    let jwt_gen = Arc::new(
+        LocalJwtGenerator::builder()
+            .signing_key_resolver(resolver)
+            .signing_algorithm(SigningAlgorithm::EdDSA)
+            .build(),
+    );
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let mut token_claim = serde_json::Map::new();
+    token_claim.insert("token".to_string(), serde_json::Value::String(token.to_string()));
+    let claims = TokenClaims::builder()
+        .iss("did:web:consumer")
+        .sub("did:web:consumer")
+        .aud("did:web:provider")
+        .exp(now + 300)
+        .custom(token_claim)
+        .build();
+    let consumer_ctx = ParticipantContext::builder()
+        .id("test-participant-context")
+        .identifier("did:web:consumer")
+        .audience("did:web:consumer")
+        .build();
+    let bearer_jwt = jwt_gen
+        .generate_token(&consumer_ctx, claims)
+        .await
+        .context("Failed to generate JWT for refresh")?;
+
+    // curl runs inside the pod — no port-forward required for port 8080.
+    // The refresh token is a hex string so no shell-escaping is needed.
+    // We capture both the body and HTTP status so failures report the actual error response.
+    let curl_cmd = format!(
+        "curl -s -w '\\n__HTTP_STATUS__%{{http_code}}' -X POST http://localhost:8080/token/refresh \
+         -H 'Content-Type: application/x-www-form-urlencoded' \
+         -H 'Authorization: Bearer {}' \
+         -d 'grant_type=refresh_token&refresh_token={}'",
+        bearer_jwt, refresh_token_value
+    );
+    let raw_output = kubectl_exec(E2E_NAMESPACE, &deployment.pod_name, "siglet", &["sh", "-c", &curl_cmd])
+        .context("Token refresh via kubectl exec failed")?;
+
+    // Split body from the trailing `__HTTP_STATUS__<code>` marker appended by -w.
+    let (refresh_body, http_status) = raw_output
+        .rsplit_once("__HTTP_STATUS__")
+        .map(|(b, s)| (b.trim_end_matches('\n'), s.trim()))
+        .unwrap_or((raw_output.trim(), "unknown"));
+
+    if http_status != "200" {
+        anyhow::bail!("Token refresh returned HTTP {}: {}", http_status, refresh_body);
+    }
+
+    let refresh_result: serde_json::Value =
+        serde_json::from_str(refresh_body).context("Failed to parse token refresh response")?;
+
+    assert!(
+        refresh_result
+            .get("access_token")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.is_empty()),
+        "Refreshed access token should not be empty, got: {}",
+        refresh_body
+    );
+    assert!(
+        refresh_result
+            .get("refresh_token")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.is_empty()),
+        "New refresh token should not be empty, got: {}",
+        refresh_body
+    );
+
+    // Step 5: Provider terminates the transfer
+    let terminate_message = serde_json::json!({ "reason": "Test termination" });
 
     let terminate_response = client
         .post(format!(
@@ -303,7 +421,6 @@ async fn test_pull_operations() -> Result<()> {
             signaling_url, provider_flow_id
         ))
         .header("Content-Type", "application/json")
-        .header("X-Participant-Id", "test-participant-context")
         .json(&terminate_message)
         .send()
         .await
@@ -316,154 +433,4 @@ async fn test_pull_operations() -> Result<()> {
     );
 
     Ok(())
-}
-
-/// Information about the deployed Siglet instance
-struct SigletDeployment {
-    pod_name: String,
-    signaling_port: u16,
-}
-
-/// Sets up port forwarding for the Signaling API and returns the local port
-async fn setup_signaling_port_forward() -> Result<u16> {
-    // Get an available port on the host machine
-    let local_port = get_available_port();
-
-    // Start port-forward in background
-    let _child = std::process::Command::new("kubectl")
-        .args([
-            "port-forward",
-            "-n",
-            E2E_NAMESPACE,
-            "service/siglet",
-            &format!("{}:8081", local_port),
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .context("Failed to start port-forward")?;
-
-    // Wait for port-forward to establish
-    let client = Client::new();
-    let start = std::time::Instant::now();
-    let timeout_secs = 10;
-
-    loop {
-        if start.elapsed().as_secs() > timeout_secs {
-            anyhow::bail!(
-                "Failed to establish port-forward connection after {} seconds",
-                timeout_secs
-            );
-        }
-
-        if client
-            .get(format!("http://localhost:{}/api/v1/dataflows", local_port))
-            .timeout(tokio::time::Duration::from_secs(1))
-            .send()
-            .await
-            .is_ok()
-        {
-            return Ok(local_port);
-        }
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    }
-}
-
-/// Setup function to verify E2E environment is ready
-async fn verify_e2e_setup() -> Result<()> {
-    // Check Kind cluster exists
-    if !kind_cluster_exists(KIND_CLUSTER_NAME)? {
-        anyhow::bail!(
-            "Kind cluster '{}' not found. Run 'cd e2e && ./scripts/setup.sh' first.",
-            KIND_CLUSTER_NAME
-        );
-    }
-
-    // Check kubectl is configured
-    if !kubectl_configured()? {
-        anyhow::bail!("kubectl not configured or cluster not accessible");
-    }
-
-    // Check namespace exists
-    if !namespace_exists(E2E_NAMESPACE)? {
-        anyhow::bail!(
-            "Namespace '{}' not found. Run 'cd e2e && ./scripts/setup.sh' first.",
-            E2E_NAMESPACE
-        );
-    }
-
-    Ok(())
-}
-
-/// Deploys the Siglet to K8S
-/// This function is idempotent and thread-safe - multiple tests can call it concurrently
-async fn ensure_siglet_deployed() -> Result<Arc<SigletDeployment>> {
-    SIGLET_DEPLOYMENT
-        .get_or_try_init(|| async {
-            verify_e2e_setup().await?;
-
-            let config_manifest = "manifests/siglet-config.yaml";
-            let deployment_manifest = "manifests/siglet-deployment.yaml";
-            let service_manifest = "manifests/siglet-service.yaml";
-
-            println!("Preparing Siglet deployment");
-
-            // Clean up any existing deployment
-            let _ = kubectl_delete(deployment_manifest);
-            let _ = kubectl_delete(service_manifest);
-            let _ = kubectl_delete(config_manifest);
-
-            // Wait for pods to actually be deleted instead of fixed sleep
-            // Wait up to 60s — Kubernetes default graceful termination period is 30s,
-            // so waiting only 30s would race against a pod that just started terminating.
-            wait_for_pods_deleted_by_label(E2E_NAMESPACE, "app=siglet", 60)
-                .await
-                .context("Failed to wait for previous Siglet pods to be deleted")?;
-
-            // Deploy Siglet (uses Vault Agent sidecar pattern)
-            // Tolerate AlreadyExists: a concurrent retry process may have deployed first
-            println!("Deploying Siglet with Vault Agent sidecar");
-            for manifest in [config_manifest, deployment_manifest, service_manifest] {
-                if let Err(e) = kubectl_apply(manifest) {
-                    if !e.to_string().contains("AlreadyExists") {
-                        return Err(e);
-                    }
-                }
-            }
-
-            // Wait for deployment to be ready
-            println!("Waiting for Siglet to be ready");
-            wait_for_deployment_ready(E2E_NAMESPACE, "siglet", 120).await?;
-            // Wait for pod to be ready
-            wait_for_pod_ready(E2E_NAMESPACE, "app=siglet", 120).await?;
-
-            // Get pod name
-            let pod_name_output = std::process::Command::new("kubectl")
-                .args([
-                    "get",
-                    "pods",
-                    "-n",
-                    E2E_NAMESPACE,
-                    "-l",
-                    "app=siglet",
-                    "-o",
-                    "jsonpath={.items[0].metadata.name}",
-                ])
-                .output()
-                .context("Failed to get pod name")?;
-            let pod_name = String::from_utf8_lossy(&pod_name_output.stdout).to_string();
-
-            println!("Siglet deployed: pod={}", pod_name);
-
-            // Set up port-forward for Signaling API
-            let signaling_port = setup_signaling_port_forward().await?;
-
-            Ok(Arc::new(SigletDeployment {
-                pod_name,
-                signaling_port,
-            }))
-        })
-        .await
-        .map(|arc| arc.clone())
 }

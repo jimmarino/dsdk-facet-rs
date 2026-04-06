@@ -1659,10 +1659,12 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "dsdk-facet-core",
  "dsdk-facet-testcontainers",
  "reqwest",
  "serde_json",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

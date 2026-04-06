@@ -87,7 +87,7 @@ pub struct SigletRuntime {
 /// receive references to the same shared services.
 pub async fn assemble(cfg: &SigletConfig) -> Result<SigletRuntime, SigletError> {
     let vault_client = create_vault_client(cfg).await?;
-    let (jwt_generator, jwt_verifier) = create_jwt_components(vault_client);
+    let (jwt_generator, jwt_verifier) = create_jwt_components(vault_client, cfg.use_http_resolution);
     let server_secret = generate_server_secret(cfg)?;
 
     let (token_store, renewable_token_store, lock_manager) = match cfg.storage_backend {
@@ -247,14 +247,24 @@ pub fn assemble_token_api(
 // ============================================================================
 
 /// Creates JWT generator and verifier components
-fn create_jwt_components(vault_client: Arc<HashicorpVaultClient>) -> (Arc<dyn JwtGenerator>, Arc<dyn JwtVerifier>) {
+fn create_jwt_components(
+    vault_client: Arc<HashicorpVaultClient>,
+    use_http_resolution: bool,
+) -> (Arc<dyn JwtGenerator>, Arc<dyn JwtVerifier>) {
     let jwt_generator = Arc::new(
         VaultJwtGenerator::builder()
             .signing_client(vault_client.clone() as Arc<dyn VaultSigningClient>)
             .build(),
     );
 
-    let verification_key_resolver = Arc::new(DidWebVerificationKeyResolver::builder().build());
+    if use_http_resolution {
+        warn!("Enabled HTTP for DID Web key resolution - do not use for production");
+    }
+    let verification_key_resolver = Arc::new(
+        DidWebVerificationKeyResolver::builder()
+            .use_https(!use_http_resolution)
+            .build(),
+    );
 
     let jwt_verifier = Arc::new(
         LocalJwtVerifier::builder()

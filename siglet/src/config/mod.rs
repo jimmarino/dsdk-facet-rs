@@ -98,6 +98,9 @@ pub struct SigletConfig {
     #[serde(default)]
     pub transfer_types: Vec<TransferType>,
 
+    #[serde(default)]
+    pub use_http_resolution: bool,
+
     // Vault configuration
     pub vault_url: Option<String>,
     pub vault_token: Option<String>,
@@ -122,6 +125,7 @@ impl Default for SigletConfig {
             bind: DEFAULT_BIND_ADDRESS,
             storage_backend: StorageBackend::Memory,
             transfer_types: Vec::new(),
+            use_http_resolution: false,
             vault_url: None,
             vault_token: None,
             vault_token_file: None,

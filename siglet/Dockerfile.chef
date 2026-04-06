@@ -26,7 +26,10 @@ RUN apt-get update && \
 COPY --from=planner /build/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
-# Copy source code and build application (only this layer rebuilds on code changes)
+# Copy source code and build application (only this layer rebuilds on code changes).
+# CACHE_INVALIDATE is set to the git HEAD SHA by the build script so Docker always
+# invalidates this layer when source has changed, while the dep layer above stays cached.
+ARG CACHE_INVALIDATE=unknown
 COPY facet-rs/Cargo.toml facet-rs/Cargo.lock ./
 COPY facet-rs/crates ./crates
 COPY facet-rs/siglet ./siglet
