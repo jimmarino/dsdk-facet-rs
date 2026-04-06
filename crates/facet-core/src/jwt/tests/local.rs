@@ -65,6 +65,7 @@ async fn test_token_generation_validation(#[case] key_format: KeyFormat) {
 
     let verified_claims = verifier
         .verify_token(&pc.audience, &token)
+        .await
         .expect("Token verification should succeed");
 
     assert_eq!(verified_claims.sub, "user-id-123");
@@ -109,7 +110,7 @@ async fn test_expired_token_validation_pem_eddsa() {
 
     let verifier = create_test_verifier(keypair.public_key, KeyFormat::PEM, SigningAlgorithm::EdDSA);
 
-    let result = verifier.verify_token(&pc.audience, &token);
+    let result = verifier.verify_token(&pc.audience, &token).await;
 
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), JwtVerificationError::TokenExpired));
@@ -150,6 +151,7 @@ async fn test_leeway_allows_recently_expired_token_pem_eddsa() {
 
     let verified_claims = verifier
         .verify_token(&pc.audience, &token)
+        .await
         .expect("Token should be valid with leeway");
 
     assert_eq!(verified_claims.sub, "user-id-789");
@@ -190,7 +192,7 @@ async fn test_leeway_rejects_token_expired_beyond_leeway_pem_eddsa() {
     // Verifier with 30-second leeway should reject token expired 100 seconds ago
     let verifier = create_test_verifier_with_leeway(keypair.public_key, KeyFormat::PEM, SigningAlgorithm::EdDSA, 30);
 
-    let result = verifier.verify_token(&pc.audience, &token);
+    let result = verifier.verify_token(&pc.audience, &token).await;
 
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), JwtVerificationError::TokenExpired));
@@ -231,7 +233,7 @@ async fn test_invalid_signature_pem_eddsa() {
     // Try to verify with a different public key
     let verifier = create_test_verifier(keypair2.public_key, KeyFormat::PEM, SigningAlgorithm::EdDSA);
 
-    let result = verifier.verify_token(&pc.audience, &token);
+    let result = verifier.verify_token(&pc.audience, &token).await;
 
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), JwtVerificationError::InvalidSignature));
@@ -249,17 +251,17 @@ async fn test_malformed_token_pem_eddsa() {
         .build();
 
     // Empty token string
-    let result = verifier.verify_token(&pc.audience, "");
+    let result = verifier.verify_token(&pc.audience, "").await;
     assert!(result.is_err(), "Empty token should fail validation");
     assert!(matches!(result.unwrap_err(), JwtVerificationError::InvalidFormat));
 
     // Token with only one dot (missing signature part)
-    let result = verifier.verify_token(&pc.audience, "header.payload");
+    let result = verifier.verify_token(&pc.audience, "header.payload").await;
     assert!(result.is_err(), "Token missing signature should fail validation");
     assert!(matches!(result.unwrap_err(), JwtVerificationError::InvalidFormat));
 
     // Token with invalid base64 in parts
-    let result = verifier.verify_token(&pc.audience, "not.a.token");
+    let result = verifier.verify_token(&pc.audience, "not.a.token").await;
     assert!(result.is_err(), "Token with invalid base64 should fail validation");
     match result.unwrap_err() {
         JwtVerificationError::InvalidFormat | JwtVerificationError::VerificationFailed(_) => {}
@@ -267,7 +269,7 @@ async fn test_malformed_token_pem_eddsa() {
     }
 
     // Token with no dots at all
-    let result = verifier.verify_token(&pc.audience, "invalid-token");
+    let result = verifier.verify_token(&pc.audience, "invalid-token").await;
     assert!(result.is_err(), "Token with no dots should fail validation");
     assert!(matches!(result.unwrap_err(), JwtVerificationError::InvalidFormat));
 }
@@ -306,7 +308,7 @@ async fn test_mismatched_key_format_pem_eddsa() {
 
     let verifier = create_test_verifier(keypair_der.public_key, KeyFormat::DER, SigningAlgorithm::EdDSA);
 
-    let result = verifier.verify_token(&pc.audience, &token);
+    let result = verifier.verify_token(&pc.audience, &token).await;
 
     // This should fail because we're using a different keypair
     assert!(result.is_err());
@@ -347,6 +349,7 @@ async fn test_rsa_token_generation_validation_pem() {
 
     let verified_claims = verifier
         .verify_token(&pc.audience, &token)
+        .await
         .expect("Token verification should succeed");
 
     assert_eq!(verified_claims.sub, "user-id-456");
@@ -394,7 +397,7 @@ async fn test_audience_mismatch_pem_eddsa() {
         .audience("different-audience")
         .build();
 
-    let result = verifier.verify_token(&pc_verify.audience, &token);
+    let result = verifier.verify_token(&pc_verify.audience, &token).await;
 
     assert!(result.is_err());
     assert!(matches!(
@@ -439,7 +442,7 @@ async fn test_algorithm_mismatch_pem() {
     // Try to verify EdDSA token with RS256 verifier
     let verifier = create_test_verifier(keypair_rsa.public_key, KeyFormat::PEM, SigningAlgorithm::RS256);
 
-    let result = verifier.verify_token(&pc.audience, &token);
+    let result = verifier.verify_token(&pc.audience, &token).await;
 
     // Should fail due to algorithm mismatch
     assert!(result.is_err());
@@ -479,7 +482,7 @@ async fn test_not_before_validation_pem_eddsa() {
 
     let verifier = create_test_verifier(keypair.public_key, KeyFormat::PEM, SigningAlgorithm::EdDSA);
 
-    let result = verifier.verify_token(&pc.audience, &token);
+    let result = verifier.verify_token(&pc.audience, &token).await;
 
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), JwtVerificationError::TokenNotYetValid));
@@ -522,6 +525,7 @@ async fn test_not_before_with_leeway_pem_eddsa() {
 
     let verified_claims = verifier
         .verify_token(&pc.audience, &token)
+        .await
         .expect("Token should be valid with leeway");
 
     assert_eq!(verified_claims.sub, "user-id-456");
@@ -563,7 +567,7 @@ async fn test_not_before_beyond_leeway_pem_eddsa() {
     // Verifier with 30-second leeway should reject token with nbf 100 seconds in the future
     let verifier = create_test_verifier_with_leeway(keypair.public_key, KeyFormat::PEM, SigningAlgorithm::EdDSA, 30);
 
-    let result = verifier.verify_token(&pc.audience, &token);
+    let result = verifier.verify_token(&pc.audience, &token).await;
 
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), JwtVerificationError::TokenNotYetValid));
@@ -611,6 +615,7 @@ async fn test_generator_sets_iat_automatically_pem_eddsa() {
 
     let verified_claims = verifier
         .verify_token(&pc.audience, &token)
+        .await
         .expect("Token verification should succeed");
 
     // Verify that the iat claim was set to current time, NOT the old value we passed in

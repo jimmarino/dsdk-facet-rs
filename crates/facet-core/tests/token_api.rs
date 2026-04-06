@@ -171,8 +171,20 @@ impl Match for BearerTokenVerifier {
             None => return false,
         };
 
-        // Verify the token
-        let claims = match self.verifier.verify_token(&self.participant_context.audience, token) {
+        // Verify the token. Wiremock's Match trait is sync, so bridge via a dedicated thread
+        // with its own runtime to avoid nested-runtime panics.
+        let verifier = self.verifier.clone();
+        let audience = self.participant_context.audience.clone();
+        let token_str = token.to_string();
+        let claims = match std::thread::spawn(move || {
+            tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(verifier.verify_token(&audience, &token_str))
+        })
+        .join()
+        .unwrap_or(Err(dsdk_facet_core::jwt::JwtVerificationError::VerificationFailed(
+            "thread join failed".to_string(),
+        ))) {
             Ok(claims) => claims,
             Err(_) => return false,
         };

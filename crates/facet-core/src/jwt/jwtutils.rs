@@ -127,8 +127,9 @@ pub struct StaticVerificationKeyResolver {
     key_format: KeyFormat,
 }
 
+#[async_trait]
 impl VerificationKeyResolver for StaticVerificationKeyResolver {
-    fn resolve_key(&self, iss: &str, kid: &str) -> Result<KeyMaterial, JwtVerificationError> {
+    async fn resolve_key(&self, iss: &str, kid: &str) -> Result<KeyMaterial, JwtVerificationError> {
         Ok(KeyMaterial::builder()
             .key(self.key.clone())
             .key_format(self.key_format)

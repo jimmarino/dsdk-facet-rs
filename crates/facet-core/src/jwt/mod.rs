@@ -78,8 +78,9 @@ impl From<VaultError> for JwtGenerationError {
 ///
 /// Note that verification does not check the value of the `iss` and `sub` claims. Clients should enforce requirements
 /// for these claims as needed.
+#[async_trait]
 pub trait JwtVerifier: Send + Sync {
-    fn verify_token(&self, audience: &str, token: &str) -> Result<TokenClaims, JwtVerificationError>;
+    async fn verify_token(&self, audience: &str, token: &str) -> Result<TokenClaims, JwtVerificationError>;
 }
 
 /// Errors that can occur during JWT verification.
@@ -251,8 +252,9 @@ impl JwtGenerator for VaultJwtGenerator {
 }
 
 /// Resolves public keys for JWT verification.
+#[async_trait]
 pub trait VerificationKeyResolver: Send + Sync {
-    fn resolve_key(&self, iss: &str, kid: &str) -> Result<KeyMaterial, JwtVerificationError>;
+    async fn resolve_key(&self, iss: &str, kid: &str) -> Result<KeyMaterial, JwtVerificationError>;
 }
 
 /// Verifies JWTs in-process.
@@ -268,8 +270,8 @@ pub struct LocalJwtVerifier {
 }
 
 impl LocalJwtVerifier {
-    fn load_decoding_key(&self, iss: &str, kid: &str) -> Result<DecodingKey, JwtVerificationError> {
-        let key_material = self.verification_key_resolver.resolve_key(iss, kid)?;
+    async fn load_decoding_key(&self, iss: &str, kid: &str) -> Result<DecodingKey, JwtVerificationError> {
+        let key_material = self.verification_key_resolver.resolve_key(iss, kid).await?;
         match (&self.signing_algorithm, key_material.key_format) {
             (SigningAlgorithm::EdDSA, KeyFormat::PEM) => DecodingKey::from_ed_pem(&key_material.key).map_err(|e| {
                 JwtVerificationError::VerificationFailed(format!("Failed to load Ed25519 PEM key: {}", e))
@@ -282,8 +284,9 @@ impl LocalJwtVerifier {
     }
 }
 
+#[async_trait]
 impl JwtVerifier for LocalJwtVerifier {
-    fn verify_token(&self, audience: &str, token: &str) -> Result<TokenClaims, JwtVerificationError> {
+    async fn verify_token(&self, audience: &str, token: &str) -> Result<TokenClaims, JwtVerificationError> {
         // Extract kid from header (without verification)
         let header = decode_header(token).map_err(|_| JwtVerificationError::InvalidFormat)?;
 
@@ -295,7 +298,7 @@ impl JwtVerifier for LocalJwtVerifier {
         let iss = &unverified.claims.iss;
 
         // Now load the decoding key with the extracted iss and kid
-        let decoding_key = self.load_decoding_key(iss, &kid)?;
+        let decoding_key = self.load_decoding_key(iss, &kid).await?;
         let mut validation = Validation::new(self.signing_algorithm.into());
         validation.leeway = self.leeway_seconds;
         validation.validate_nbf = true; // Enable not-before validation
@@ -472,8 +475,9 @@ impl DidWebVerificationKeyResolver {
     }
 }
 
+#[async_trait]
 impl VerificationKeyResolver for DidWebVerificationKeyResolver {
-    fn resolve_key(&self, iss: &str, kid: &str) -> Result<KeyMaterial, JwtVerificationError> {
+    async fn resolve_key(&self, iss: &str, kid: &str) -> Result<KeyMaterial, JwtVerificationError> {
         // The iss should be a DID (possibly with fragment)
         // The kid might be a full DID URL or just a fragment
         let did_url = if kid.starts_with("did:") {
@@ -497,12 +501,8 @@ impl VerificationKeyResolver for DidWebVerificationKeyResolver {
         // Convert did:web to HTTP(S) URL
         let url = self.did_web_to_url(&base_did)?;
 
-        // Execute the async HTTP fetch from this sync trait method.
-        // `block_in_place` temporarily moves other tokio tasks off this thread so we can
-        // block it without deadlocking the runtime. This is required when calling sync
-        // code that needs async I/O from within an async context (e.g., an Axum handler).
-        let handle = tokio::runtime::Handle::current();
-        let doc = tokio::task::block_in_place(|| handle.block_on(self.fetch_did_document(&url)))?;
+        // Fetch the DID document
+        let doc = self.fetch_did_document(&url).await?;
 
         // Find the verification method
         let vm = Self::find_verification_method(&doc, &fragment)?;

@@ -317,12 +317,7 @@ async fn test_resolve_key_full_did_url() {
 
     let resolver = DidWebVerificationKeyResolver::builder().use_https(false).build();
 
-    // Use spawn_blocking to avoid nested runtime issue
-    let did_clone = did.clone();
-    let key_id_clone = key_id.clone();
-    let result = tokio::task::spawn_blocking(move || resolver.resolve_key(&did_clone, &key_id_clone))
-        .await
-        .unwrap();
+    let result = resolver.resolve_key(&did, &key_id).await;
 
     assert!(result.is_ok());
     let key_material = result.unwrap();
@@ -345,11 +340,7 @@ async fn test_resolve_key_fragment_only_kid() {
 
     let resolver = DidWebVerificationKeyResolver::builder().use_https(false).build();
 
-    // Pass just fragment as kid
-    let did_clone = did.clone();
-    let result = tokio::task::spawn_blocking(move || resolver.resolve_key(&did_clone, "#key-1"))
-        .await
-        .unwrap();
+    let result = resolver.resolve_key(&did, "#key-1").await;
 
     assert!(result.is_ok());
 }
@@ -370,11 +361,7 @@ async fn test_resolve_key_bare_fragment_kid() {
 
     let resolver = DidWebVerificationKeyResolver::builder().use_https(false).build();
 
-    // Pass bare fragment as kid (no # prefix)
-    let did_clone = did.clone();
-    let result = tokio::task::spawn_blocking(move || resolver.resolve_key(&did_clone, "key-1"))
-        .await
-        .unwrap();
+    let result = resolver.resolve_key(&did, "key-1").await;
 
     assert!(result.is_ok());
 }
@@ -396,10 +383,7 @@ async fn test_resolve_key_with_path() {
 
     let resolver = DidWebVerificationKeyResolver::builder().use_https(false).build();
 
-    let did_clone = did.clone();
-    let result = tokio::task::spawn_blocking(move || resolver.resolve_key(&did_clone, "signing-key"))
-        .await
-        .unwrap();
+    let result = resolver.resolve_key(&did, "signing-key").await;
 
     assert!(result.is_ok());
 }
@@ -412,11 +396,7 @@ async fn test_resolve_key_missing_fragment() {
     let resolver = DidWebVerificationKeyResolver::builder().use_https(false).build();
 
     // Pass kid without fragment (full DID URL without #)
-    let did_clone = did.clone();
-    let did_clone2 = did.clone();
-    let result = tokio::task::spawn_blocking(move || resolver.resolve_key(&did_clone, &did_clone2))
-        .await
-        .unwrap();
+    let result = resolver.resolve_key(&did, &did).await;
 
     assert!(result.is_err());
     match result.unwrap_err() {
@@ -444,19 +424,13 @@ async fn test_resolve_key_http_vs_https() {
     // Test with HTTP (should work with mock server)
     let resolver_http = DidWebVerificationKeyResolver::builder().use_https(false).build();
 
-    let did_clone = did.clone();
-    let result = tokio::task::spawn_blocking(move || resolver_http.resolve_key(&did_clone, "key-1"))
-        .await
-        .unwrap();
+    let result = resolver_http.resolve_key(&did, "key-1").await;
     assert!(result.is_ok());
 
     // Test with HTTPS (will fail because mock server uses HTTP)
     let resolver_https = DidWebVerificationKeyResolver::builder().use_https(true).build();
 
-    let did_clone2 = did.clone();
-    let result = tokio::task::spawn_blocking(move || resolver_https.resolve_key(&did_clone2, "key-1"))
-        .await
-        .unwrap();
+    let result = resolver_https.resolve_key(&did, "key-1").await;
     assert!(result.is_err());
 }
 
@@ -465,10 +439,7 @@ async fn test_resolve_key_network_error() {
     // Use a server that doesn't exist
     let resolver = DidWebVerificationKeyResolver::builder().build();
 
-    let result =
-        tokio::task::spawn_blocking(move || resolver.resolve_key("did:web:nonexistent.invalid.domain.test", "key-1"))
-            .await
-            .unwrap();
+    let result = resolver.resolve_key("did:web:nonexistent.invalid.domain.test", "key-1").await;
 
     assert!(result.is_err());
 }
@@ -560,7 +531,7 @@ async fn test_did_web_sign_verify_roundtrip_via_multibase() {
         .signing_algorithm(SigningAlgorithm::EdDSA)
         .build();
 
-    let result = verifier.verify_token("did:web:provider", &token);
+    let result = verifier.verify_token("did:web:provider", &token).await;
     assert!(
         result.is_ok(),
         "JWT verification should succeed: {:?}",

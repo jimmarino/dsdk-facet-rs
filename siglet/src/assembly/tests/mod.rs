@@ -15,6 +15,7 @@
 use crate::assembly::{create_siglet_handler, create_token_manager, generate_server_secret};
 use crate::config::SigletConfig;
 use dsdk_facet_core::context::ParticipantContext;
+use async_trait::async_trait;
 use dsdk_facet_core::jwt::{JwtGenerationError, JwtGenerator, JwtVerificationError, JwtVerifier, TokenClaims};
 use dsdk_facet_core::token::client::MemoryTokenStore;
 use dsdk_facet_core::token::manager::MemoryRenewableTokenStore;
@@ -315,8 +316,9 @@ impl JwtGenerator for MockJwtGenerator {
 /// Mock JWT Verifier for testing
 struct MockJwtVerifier;
 
+#[async_trait]
 impl JwtVerifier for MockJwtVerifier {
-    fn verify_token(&self, _audience: &str, _token: &str) -> Result<TokenClaims, JwtVerificationError> {
+    async fn verify_token(&self, _audience: &str, _token: &str) -> Result<TokenClaims, JwtVerificationError> {
         let exp_time = (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp();
         Ok(TokenClaims::builder()
             .sub("test-subject")

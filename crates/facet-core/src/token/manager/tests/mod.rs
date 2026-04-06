@@ -42,8 +42,9 @@ impl JwtGenerator for MockJwtGenerator {
 // Mock JWT verifier for testing
 struct MockJwtVerifier;
 
+#[async_trait]
 impl JwtVerifier for MockJwtVerifier {
-    fn verify_token(&self, _aud: &str, _token: &str) -> Result<crate::jwt::TokenClaims, JwtVerificationError> {
+    async fn verify_token(&self, _aud: &str, _token: &str) -> Result<crate::jwt::TokenClaims, JwtVerificationError> {
         Ok(crate::jwt::TokenClaims::builder()
             .iss("test")
             .sub("test_subject")

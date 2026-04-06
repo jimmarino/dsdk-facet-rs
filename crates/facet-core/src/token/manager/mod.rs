@@ -302,7 +302,7 @@ impl TokenManager for JwtTokenManager {
             .await
             .map_err(|_| TokenError::NotAuthorized("Invalid refresh token".to_string()))?;
 
-        let verified_claims = self.token_verifier.verify_token(&entry.audience, bound_token)?;
+        let verified_claims = self.token_verifier.verify_token(&entry.audience, bound_token).await?;
         if verified_claims.sub != entry.subject {
             return Err(TokenError::NotAuthorized("Subject mismatch".to_string()));
         }

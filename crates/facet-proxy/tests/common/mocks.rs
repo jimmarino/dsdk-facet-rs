@@ -10,6 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+use async_trait::async_trait;
 use dsdk_facet_core::auth::{AuthorizationError, AuthorizationEvaluator, Operation};
 use dsdk_facet_core::context::ParticipantContext;
 use dsdk_facet_core::jwt::{JwtVerificationError, JwtVerifier, TokenClaims};
@@ -65,8 +66,9 @@ pub struct TestJwtVerifier {
     pub scope: String,
 }
 
+#[async_trait]
 impl JwtVerifier for TestJwtVerifier {
-    fn verify_token(&self, _audience: &str, _token: &str) -> std::result::Result<TokenClaims, JwtVerificationError> {
+    async fn verify_token(&self, _audience: &str, _token: &str) -> std::result::Result<TokenClaims, JwtVerificationError> {
         let mut custom = Map::new();
         custom.insert("scope".to_string(), Value::String(self.scope.clone()));
         Ok(TokenClaims {
@@ -87,8 +89,9 @@ pub struct TokenMatchingJwtVerifier {
     pub scope: String,
 }
 
+#[async_trait]
 impl JwtVerifier for TokenMatchingJwtVerifier {
-    fn verify_token(&self, _audience: &str, token: &str) -> std::result::Result<TokenClaims, JwtVerificationError> {
+    async fn verify_token(&self, _audience: &str, token: &str) -> std::result::Result<TokenClaims, JwtVerificationError> {
         let mut custom = Map::new();
         custom.insert("scope".to_string(), Value::String(self.scope.clone()));
 
@@ -177,8 +180,9 @@ pub struct DetailedFailureJwtVerifier {
     pub internal_detail: String,
 }
 
+#[async_trait]
 impl JwtVerifier for DetailedFailureJwtVerifier {
-    fn verify_token(&self, _audience: &str, _token: &str) -> std::result::Result<TokenClaims, JwtVerificationError> {
+    async fn verify_token(&self, _audience: &str, _token: &str) -> std::result::Result<TokenClaims, JwtVerificationError> {
         Err(JwtVerificationError::VerificationFailed(format!(
             "Key server at {} returned 500: Internal Server Error, correlation-id: {}, trace-id: xyz-789",
             self.internal_detail, "req-abc-123-def"

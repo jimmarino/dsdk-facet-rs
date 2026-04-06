@@ -88,6 +88,7 @@ async fn test_generate_pair_token_is_valid_jwt() {
     let claims = fixture
         .verifier
         .verify_token(&pc.audience, &pair.token)
+        .await
         .expect("Token should be valid");
 
     assert_eq!(claims.sub, "did:web:consumer.com");
@@ -306,6 +307,7 @@ async fn test_renew_preserves_subject_and_claims() {
     let claims = fixture
         .verifier
         .verify_token(&pc.audience, &renewed_pair.token)
+        .await
         .expect("Renewed token should be valid");
 
     assert_eq!(claims.sub, "did:web:consumer.com", "Subject should be preserved");
@@ -587,6 +589,7 @@ async fn test_round_trip_generate_and_renew() {
     let claims = fixture
         .verifier
         .verify_token(&pc.audience, &renewed_pair.token)
+        .await
         .expect("Renewed token should be valid");
 
     assert_eq!(claims.sub, "did:web:consumer.com");
