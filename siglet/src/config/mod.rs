@@ -30,6 +30,9 @@ pub const DEFAULT_SIGLET_API_PORT: u16 = 8080;
 /// Default port for the DataPlane signaling API
 pub const DEFAULT_SIGNALING_PORT: u16 = 8081;
 
+/// Default port for the token refresh API
+pub const DEFAULT_REFRESH_API_PORT: u16 = 8082;
+
 /// Default bind address (0.0.0.0 - listen on all interfaces)
 pub const DEFAULT_BIND_ADDRESS: IpAddr = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
 
@@ -91,6 +94,8 @@ pub struct SigletConfig {
     pub siglet_api_port: u16,
     #[serde(default = "default_signaling_port")]
     pub signaling_port: u16,
+    #[serde(default = "default_refresh_api_port")]
+    pub refresh_api_port: u16,
     #[serde(default = "default_bind")]
     pub bind: IpAddr,
     #[serde(default)]
@@ -122,6 +127,7 @@ impl Default for SigletConfig {
         Self {
             siglet_api_port: DEFAULT_SIGLET_API_PORT,
             signaling_port: DEFAULT_SIGNALING_PORT,
+            refresh_api_port: DEFAULT_REFRESH_API_PORT,
             bind: DEFAULT_BIND_ADDRESS,
             storage_backend: StorageBackend::Memory,
             transfer_types: Vec::new(),
@@ -194,6 +200,18 @@ impl SigletConfig {
                 self.siglet_api_port
             ));
         }
+        if self.refresh_api_port == self.siglet_api_port {
+            errors.push(format!(
+                "refresh_api_port and siglet_api_port cannot be the same (both are {})",
+                self.refresh_api_port
+            ));
+        }
+        if self.refresh_api_port == self.signaling_port {
+            errors.push(format!(
+                "refresh_api_port and signaling_port cannot be the same (both are {})",
+                self.refresh_api_port
+            ));
+        }
 
         // Validate port numbers are not 0 (system-assigned)
         if self.siglet_api_port == 0 {
@@ -201,6 +219,9 @@ impl SigletConfig {
         }
         if self.signaling_port == 0 {
             errors.push("signaling_port cannot be 0".to_string());
+        }
+        if self.refresh_api_port == 0 {
+            errors.push("refresh_api_port cannot be 0".to_string());
         }
 
         // Validate transfer types
@@ -268,6 +289,10 @@ const fn default_siglet_api_port() -> u16 {
 
 const fn default_signaling_port() -> u16 {
     DEFAULT_SIGNALING_PORT
+}
+
+const fn default_refresh_api_port() -> u16 {
+    DEFAULT_REFRESH_API_PORT
 }
 
 fn default_bind() -> IpAddr {

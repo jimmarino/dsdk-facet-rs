@@ -162,7 +162,7 @@ async fn test_port_conflict_propagates() {
     let cancel_token = CancellationToken::new();
 
     // Try to bind to the same port - should fail
-    let result = crate::server::run_siglet_api(bind, port, no_op_refresh_handler(), cancel_token).await;
+    let result = crate::server::run_refresh_api(bind, port, no_op_refresh_handler(), cancel_token).await;
 
     assert!(result.is_err());
     drop(listener);
@@ -177,9 +177,9 @@ async fn test_cancellation_token_stops_server() {
     let cancel_token = CancellationToken::new();
     let cancel_token_clone = cancel_token.clone();
 
-    // Spawn server on specific port
+    // Spawn refresh API server on specific port
     let handle = tokio::spawn(async move {
-        crate::server::run_siglet_api(bind, port, no_op_refresh_handler(), cancel_token_clone).await
+        crate::server::run_refresh_api(bind, port, no_op_refresh_handler(), cancel_token_clone).await
     });
 
     // Wait for server to be ready (port accepting connections)
@@ -209,7 +209,7 @@ async fn test_server_graceful_shutdown_with_cancellation() {
     let cancel_token_clone = cancel_token.clone();
 
     let handle = tokio::spawn(async move {
-        crate::server::run_siglet_api(bind, port, no_op_refresh_handler(), cancel_token_clone).await
+        crate::server::run_refresh_api(bind, port, no_op_refresh_handler(), cancel_token_clone).await
     });
 
     // Wait for server to be ready (port accepting connections)

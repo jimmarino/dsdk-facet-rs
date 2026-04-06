@@ -310,7 +310,7 @@ fn create_token_manager(
     let refresh_endpoint = cfg
         .token_refresh_endpoint
         .clone()
-        .unwrap_or_else(|| format!("http://{}:{}{}", cfg.bind, cfg.siglet_api_port, TOKEN_REFRESH_PATH));
+        .unwrap_or_else(|| format!("http://{}:{}{}", cfg.bind, cfg.refresh_api_port, TOKEN_REFRESH_PATH));
 
     Arc::new(
         JwtTokenManager::builder()

@@ -33,6 +33,11 @@ use crate::error::SigletError;
 use crate::handler::TokenApiHandler;
 use crate::handler::refresh::TokenRefreshHandler;
 
+// ============================================================================
+// Visibility note: run_siglet_api and run_refresh_api are pub(crate) so that
+// server tests can exercise them directly.
+// ============================================================================
+
 #[cfg(test)]
 mod tests;
 
@@ -59,7 +64,10 @@ const STATUS_HEALTHY: &str = "healthy";
 // Server Functions
 // ============================================================================
 
-/// Run both signaling and siglet APIs with structured concurrency
+/// Run all three APIs with structured concurrency:
+/// - Signaling API (dataplane SDK)
+/// - Siglet API (token management + health)
+/// - Refresh API (token refresh endpoint)
 ///
 /// This function uses JoinSet to manage multiple server tasks and provides:
 /// - Proper error propagation from spawned tasks
@@ -69,14 +77,15 @@ pub async fn run_server(
     bind: IpAddr,
     signaling_port: u16,
     siglet_api_port: u16,
+    refresh_api_port: u16,
     sdk: DataPlaneSdk<MemoryContext>,
+    token_api_handler: TokenApiHandler,
     refresh_handler: TokenRefreshHandler,
-    _token_api_handler: TokenApiHandler,
 ) -> Result<(), SigletError> {
     let mut join_set = JoinSet::new();
     let cancel_token = CancellationToken::new();
 
-    // Spawn both server tasks
+    // Spawn all three server tasks
     join_set.spawn(run_signaling_api(
         bind,
         signaling_port,
@@ -87,6 +96,13 @@ pub async fn run_server(
     join_set.spawn(run_siglet_api(
         bind,
         siglet_api_port,
+        token_api_handler,
+        cancel_token.clone(),
+    ));
+
+    join_set.spawn(run_refresh_api(
+        bind,
+        refresh_api_port,
         refresh_handler,
         cancel_token.clone(),
     ));
@@ -191,12 +207,45 @@ async fn run_signaling_api(
     Ok(())
 }
 
-/// Run the Siglet management API
+/// Run the Siglet management API (token CRUD + health)
 ///
 /// This function binds to the specified address and runs until either:
 /// - The cancellation token is triggered
 /// - An error occurs
-async fn run_siglet_api(
+pub(crate) async fn run_siglet_api(
+    bind: IpAddr,
+    port: u16,
+    token_api_handler: TokenApiHandler,
+    cancel_token: CancellationToken,
+) -> Result<(), SigletError> {
+    let addr: SocketAddr = format!("{}:{}", bind, port)
+        .parse()
+        .map_err(|e: std::net::AddrParseError| SigletError::Network(Box::new(e)))?;
+
+    let app = create_router().merge(token_api_handler.router());
+
+    info!("Siglet API listening on {}", addr);
+
+    // Bind to address - returns error if fails (e.g., port already in use)
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+
+    // Run server with graceful shutdown
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            cancel_token.cancelled().await;
+        })
+        .await
+        .map_err(|e| SigletError::Io(std::io::Error::other(e)))?;
+
+    Ok(())
+}
+
+/// Run the token refresh API
+///
+/// This function binds to the specified address and runs until either:
+/// - The cancellation token is triggered
+/// - An error occurs
+pub(crate) async fn run_refresh_api(
     bind: IpAddr,
     port: u16,
     refresh_handler: TokenRefreshHandler,
@@ -206,9 +255,9 @@ async fn run_siglet_api(
         .parse()
         .map_err(|e: std::net::AddrParseError| SigletError::Network(Box::new(e)))?;
 
-    let app = create_router().merge(refresh_handler.router());
+    let app = refresh_handler.router().layer(TraceLayer::new_for_http());
 
-    info!("Siglet API listening on {}", addr);
+    info!("Refresh API listening on {}", addr);
 
     // Bind to address - returns error if fails (e.g., port already in use)
     let listener = tokio::net::TcpListener::bind(addr).await?;

@@ -49,6 +49,7 @@ fn test_valid_config_with_all_fields() {
     let config = SigletConfig {
         siglet_api_port: 8080,
         signaling_port: 8081,
+        refresh_api_port: 8082,
         bind: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         storage_backend: StorageBackend::Memory,
         transfer_types: vec![
@@ -95,6 +96,7 @@ fn test_valid_config_different_ports() {
     let mut config = create_valid_config();
     config.siglet_api_port = 9000;
     config.signaling_port = 9001;
+    config.refresh_api_port = 9002;
 
     assert!(config.validate().is_ok());
 }
@@ -392,10 +394,58 @@ fn test_both_ports_zero() {
 }
 
 #[test]
+fn test_refresh_api_port_conflicts_with_siglet_api_port() {
+    let mut config = create_valid_config();
+    config.refresh_api_port = config.siglet_api_port;
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(
+        messages
+            .iter()
+            .any(|msg| msg.contains("refresh_api_port and siglet_api_port cannot be the same"))
+    );
+}
+
+#[test]
+fn test_refresh_api_port_conflicts_with_signaling_port() {
+    let mut config = create_valid_config();
+    config.refresh_api_port = config.signaling_port;
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(
+        messages
+            .iter()
+            .any(|msg| msg.contains("refresh_api_port and signaling_port cannot be the same"))
+    );
+}
+
+#[test]
+fn test_refresh_api_port_zero() {
+    let mut config = create_valid_config();
+    config.refresh_api_port = 0;
+
+    let result = config.validate();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let messages = err.messages();
+    assert!(messages.contains(&"refresh_api_port cannot be 0"));
+}
+
+#[test]
 fn test_high_port_numbers_valid() {
     let mut config = create_valid_config();
     config.siglet_api_port = 65535;
     config.signaling_port = 65534;
+    config.refresh_api_port = 65533;
 
     assert!(config.validate().is_ok());
 }
@@ -565,24 +615,25 @@ fn test_all_possible_errors() {
     let config = SigletConfig {
         siglet_api_port: 0, // Error 1
         signaling_port: 0,  // Error 2
+        refresh_api_port: 0, // Error 3
         bind: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-        storage_backend: StorageBackend::Postgres, // Error 3
+        storage_backend: StorageBackend::Postgres, // Error 4
         transfer_types: vec![
             TransferType::builder()
-                .transfer_type("".to_string()) // Error 4
-                .endpoint_type("".to_string()) // Error 5
+                .transfer_type("".to_string()) // Error 5
+                .endpoint_type("".to_string()) // Error 6
                 .endpoint("".to_string())
                 .token_source(TokenSource::Provider)
                 .build(),
         ],
         use_http_resolution: false,
-        vault_url: None,   // Error 6
-        vault_token: None, // Error 7 (combined)
+        vault_url: None,   // Error 7
+        vault_token: None, // Error 8 (combined)
         vault_token_file: None,
-        vault_signing_key_name: "".to_string(), // Error 8
+        vault_signing_key_name: "".to_string(), // Error 9
         token_issuer: None,
         token_refresh_endpoint: None,
-        token_server_secret: Some("invalid-hex".to_string()), // Error 9
+        token_server_secret: Some("invalid-hex".to_string()), // Error 10
         postgres_url: None,
         postgres_encryption_password: None,
         postgres_encryption_salt: None,

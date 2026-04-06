@@ -51,9 +51,10 @@ async fn run(cfg: SigletConfig) -> Result<(), SigletError> {
         cfg.bind,
         cfg.signaling_port,
         cfg.siglet_api_port,
+        cfg.refresh_api_port,
         runtime.sdk,
-        runtime.refresh_handler,
         runtime.token_api_handler,
+        runtime.refresh_handler,
     )
     .await
 }

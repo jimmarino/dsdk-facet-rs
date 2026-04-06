@@ -23,8 +23,9 @@ static SIGLET_DEPLOYMENT: OnceCell<Arc<SigletDeployment>> = OnceCell::const_new(
 pub struct SigletDeployment {
     pub pod_name: String,
     pub signaling_port: u16,
-    // Keeps the kubectl port-forward process alive for the lifetime of this handle.
-    _port_forward: Mutex<std::process::Child>,
+    pub refresh_api_port: u16,
+    // Keeps the kubectl port-forward processes alive for the lifetime of this handle.
+    _port_forwards: Mutex<Vec<std::process::Child>>,
 }
 
 /// Deploys Siglet to K8S.
@@ -71,12 +72,14 @@ pub async fn ensure_siglet_deployed() -> Result<Arc<SigletDeployment>> {
 
             println!("Siglet deployed: pod={}", pod_name);
 
-            let (signaling_port, child) = setup_signaling_port_forward().await?;
+            let (signaling_port, signaling_child) = setup_signaling_port_forward().await?;
+            let (refresh_api_port, refresh_child) = setup_refresh_port_forward().await?;
 
             Ok(Arc::new(SigletDeployment {
                 pod_name,
                 signaling_port,
-                _port_forward: Mutex::new(child),
+                refresh_api_port,
+                _port_forwards: Mutex::new(vec![signaling_child, refresh_child]),
             }))
         })
         .await
@@ -99,7 +102,7 @@ async fn setup_signaling_port_forward() -> Result<(u16, std::process::Child)> {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .context("Failed to start kubectl port-forward")?;
+        .context("Failed to start kubectl port-forward for signaling API")?;
 
     let client = Client::new();
     let start = std::time::Instant::now();
@@ -109,18 +112,17 @@ async fn setup_signaling_port_forward() -> Result<(u16, std::process::Child)> {
         if start.elapsed().as_secs() > timeout_secs {
             let _ = child.kill();
             anyhow::bail!(
-                "Failed to establish port-forward to siglet:{} after {} seconds",
+                "Failed to establish port-forward to siglet signaling (8081) on local port {} after {} seconds",
                 local_port,
                 timeout_secs
             );
         }
 
-        // Detect early termination of the kubectl process (e.g. service not found, auth error).
         match child
             .try_wait()
             .context("Failed to poll kubectl port-forward process")?
         {
-            Some(status) => anyhow::bail!("kubectl port-forward exited unexpectedly: {}", status),
+            Some(status) => anyhow::bail!("kubectl port-forward (signaling) exited unexpectedly: {}", status),
             None => {}
         }
 
@@ -128,6 +130,58 @@ async fn setup_signaling_port_forward() -> Result<(u16, std::process::Child)> {
             .get(format!("http://localhost:{}/api/v1/dataflows", local_port))
             .timeout(tokio::time::Duration::from_secs(1))
             .send()
+            .await
+            .is_ok()
+        {
+            return Ok((local_port, child));
+        }
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    }
+}
+
+/// Sets up port forwarding for the Refresh API (port 8082) and returns the local port
+/// along with the child process handle (kept alive to maintain the forward).
+async fn setup_refresh_port_forward() -> Result<(u16, std::process::Child)> {
+    let local_port = get_available_port();
+
+    let mut child = std::process::Command::new("kubectl")
+        .args([
+            "port-forward",
+            "-n",
+            E2E_NAMESPACE,
+            "service/siglet",
+            &format!("{}:8082", local_port),
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .context("Failed to start kubectl port-forward for refresh API")?;
+
+    let start = std::time::Instant::now();
+    let timeout_secs = 30;
+
+    loop {
+        if start.elapsed().as_secs() > timeout_secs {
+            let _ = child.kill();
+            anyhow::bail!(
+                "Failed to establish port-forward to siglet refresh API (8082) on local port {} after {} seconds",
+                local_port,
+                timeout_secs
+            );
+        }
+
+        match child
+            .try_wait()
+            .context("Failed to poll kubectl port-forward process")?
+        {
+            Some(status) => anyhow::bail!("kubectl port-forward (refresh) exited unexpectedly: {}", status),
+            None => {}
+        }
+
+        // Probe with a GET to /token/refresh — expect 405 (Method Not Allowed) because
+        // the endpoint only accepts POST; any HTTP response means the forward is up.
+        if reqwest::get(format!("http://localhost:{}/token/refresh", local_port))
             .await
             .is_ok()
         {

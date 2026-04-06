@@ -72,6 +72,7 @@ async fn test_siglet_deployment_and_health() -> Result<()> {
         logs.contains("Signaling API"),
         "Logs should indicate Signaling API started"
     );
+    assert!(logs.contains("Refresh API"), "Logs should indicate Refresh API started");
     assert!(logs.contains("Ready"), "Logs should indicate Siglet is ready");
 
     Ok(())
@@ -321,10 +322,9 @@ async fn test_pull_operations() -> Result<()> {
         );
     }
 
-    // Step 4: Consumer refreshes the access token.
-    // The refresh endpoint is on the siglet API port (8080) inside the cluster.
-    // We use `kubectl exec` + curl to call it via localhost inside the pod rather
-    // than a port-forward, which is unreliable for the siglet API port on macOS.
+    // Step 4: Consumer refreshes the access token via the dedicated Refresh API port.
+    // Port-forwarding for port 8082 is set up in the fixture, so we can call it
+    // directly from the test using the reqwest client.
     let refresh_token_prop = properties_array
         .iter()
         .find(|p| p.get("name").and_then(|n| n.as_str()) == Some("refreshToken"))
@@ -369,31 +369,26 @@ async fn test_pull_operations() -> Result<()> {
         .await
         .context("Failed to generate JWT for refresh")?;
 
-    // curl runs inside the pod — no port-forward required for port 8080.
-    // The refresh token is a hex string so no shell-escaping is needed.
-    // We capture both the body and HTTP status so failures report the actual error response.
-    let curl_cmd = format!(
-        "curl -s -w '\\n__HTTP_STATUS__%{{http_code}}' -X POST http://localhost:8080/token/refresh \
-         -H 'Content-Type: application/x-www-form-urlencoded' \
-         -H 'Authorization: Bearer {}' \
-         -d 'grant_type=refresh_token&refresh_token={}'",
-        bearer_jwt, refresh_token_value
-    );
-    let raw_output = kubectl_exec(E2E_NAMESPACE, &deployment.pod_name, "siglet", &["sh", "-c", &curl_cmd])
-        .context("Token refresh via kubectl exec failed")?;
+    let refresh_url = format!("http://localhost:{}/token/refresh", deployment.refresh_api_port);
+    let refresh_response = client
+        .post(&refresh_url)
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .header("Authorization", format!("Bearer {}", bearer_jwt))
+        .body(format!("grant_type=refresh_token&refresh_token={}", refresh_token_value))
+        .send()
+        .await
+        .context("Token refresh request failed")?;
 
-    // Split body from the trailing `__HTTP_STATUS__<code>` marker appended by -w.
-    let (refresh_body, http_status) = raw_output
-        .rsplit_once("__HTTP_STATUS__")
-        .map(|(b, s)| (b.trim_end_matches('\n'), s.trim()))
-        .unwrap_or((raw_output.trim(), "unknown"));
-
-    if http_status != "200" {
-        anyhow::bail!("Token refresh returned HTTP {}: {}", http_status, refresh_body);
+    if !refresh_response.status().is_success() {
+        let status = refresh_response.status();
+        let body = refresh_response.text().await.unwrap_or_default();
+        anyhow::bail!("Token refresh returned HTTP {}: {}", status, body);
     }
 
-    let refresh_result: serde_json::Value =
-        serde_json::from_str(refresh_body).context("Failed to parse token refresh response")?;
+    let refresh_result: serde_json::Value = refresh_response
+        .json()
+        .await
+        .context("Failed to parse token refresh response")?;
 
     assert!(
         refresh_result
@@ -401,7 +396,7 @@ async fn test_pull_operations() -> Result<()> {
             .and_then(|v| v.as_str())
             .is_some_and(|s| !s.is_empty()),
         "Refreshed access token should not be empty, got: {}",
-        refresh_body
+        refresh_result
     );
     assert!(
         refresh_result
@@ -409,7 +404,7 @@ async fn test_pull_operations() -> Result<()> {
             .and_then(|v| v.as_str())
             .is_some_and(|s| !s.is_empty()),
         "New refresh token should not be empty, got: {}",
-        refresh_body
+        refresh_result
     );
 
     // Step 5: Provider terminates the transfer
