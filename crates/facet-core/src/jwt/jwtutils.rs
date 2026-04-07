@@ -10,7 +10,9 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-pub use super::resolver::{SigningKeyRecord, StaticSigningKeyResolver, StaticVerificationKeyResolver, VaultSigningKeyResolver};
+pub use super::resolver::{
+    SigningKeyRecord, StaticSigningKeyResolver, StaticVerificationKeyResolver, VaultSigningKeyResolver,
+};
 
 use crate::jwt::JwtGenerationError;
 use ed25519_dalek::SigningKey;
@@ -114,4 +116,3 @@ pub fn generate_ed25519_keypair_pem() -> Result<Ed25519Keypair, JwtGenerationErr
         public_key,
     })
 }
-

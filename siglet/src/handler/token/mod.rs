@@ -32,6 +32,7 @@ pub struct TokenResponse {
 #[derive(Deserialize)]
 pub struct VerifyTokenRequest {
     pub token: String,
+    pub audience: String,
 }
 
 /// Handler for token retrieval operations
@@ -48,7 +49,7 @@ impl TokenApiHandler {
                 "/tokens/{participant_context_id}/{id}",
                 get(get_token).delete(delete_token),
             )
-            .route("/tokens/verify/{audience}", post(verify_token))
+            .route("/tokens/verify", post(verify_token))
             .with_state(self)
     }
 }
@@ -83,12 +84,8 @@ async fn delete_token(
     }
 }
 
-async fn verify_token(
-    State(handler): State<TokenApiHandler>,
-    Path(audience): Path<String>,
-    Json(body): Json<VerifyTokenRequest>,
-) -> Response {
-    match handler.jwt_verifier.verify_token(&audience, &body.token).await {
+async fn verify_token(State(handler): State<TokenApiHandler>, Json(body): Json<VerifyTokenRequest>) -> Response {
+    match handler.jwt_verifier.verify_token(&body.audience, &body.token).await {
         Ok(claims) => (StatusCode::OK, Json(claims)).into_response(),
         Err(JwtVerificationError::InvalidFormat) => (StatusCode::BAD_REQUEST, "Invalid token format").into_response(),
         Err(JwtVerificationError::InvalidSignature) => {

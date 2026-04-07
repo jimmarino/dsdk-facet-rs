@@ -322,7 +322,34 @@ async fn test_pull_operations() -> Result<()> {
         );
     }
 
-    // Step 4: Consumer refreshes the access token via the dedicated Refresh API port.
+    // Step 4: Verify the access token.
+    let verify_url = format!("http://localhost:{}/tokens/verify", deployment.siglet_api_port);
+    let verify_response = client
+        .post(&verify_url)
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({ "token": token, "audience": "did:web:provider" }))
+        .send()
+        .await
+        .context("Token verification request failed")?;
+
+    if !verify_response.status().is_success() {
+        let status = verify_response.status();
+        let body = verify_response.text().await.unwrap_or_default();
+        anyhow::bail!("Token verification returned HTTP {}: {}", status, body);
+    }
+
+    let verify_result: serde_json::Value = verify_response
+        .json()
+        .await
+        .context("Failed to parse token verification response")?;
+
+    assert!(
+        verify_result.get("sub").is_some(),
+        "Verified token claims should contain 'sub' field, got: {}",
+        verify_result
+    );
+
+    // Step 5: Consumer refreshes the access token via the dedicated Refresh API port.
     // Port-forwarding for port 8082 is set up in the fixture, so we can call it
     // directly from the test using the reqwest client.
     let refresh_token_prop = properties_array
@@ -410,7 +437,7 @@ async fn test_pull_operations() -> Result<()> {
         refresh_result
     );
 
-    // Step 5: Provider terminates the transfer
+    // Step 6: Provider terminates the transfer
     let terminate_message = serde_json::json!({ "reason": "Test termination" });
 
     let terminate_response = client

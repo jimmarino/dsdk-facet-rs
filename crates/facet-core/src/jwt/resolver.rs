@@ -144,9 +144,10 @@ impl VerificationKeyResolver for VaultVerificationKeyResolver {
             .and_then(|(_, v)| v.parse().ok())
             .ok_or_else(|| JwtVerificationError::VerificationFailed(format!("Invalid kid format: {}", kid)))?;
 
-        let key_b64 = metadata.keys.get(version.saturating_sub(1)).ok_or_else(|| {
-            JwtVerificationError::VerificationFailed(format!("Key version {} not found", version))
-        })?;
+        let key_b64 = metadata
+            .keys
+            .get(version.saturating_sub(1))
+            .ok_or_else(|| JwtVerificationError::VerificationFailed(format!("Key version {} not found", version)))?;
 
         let key_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .decode(key_b64)

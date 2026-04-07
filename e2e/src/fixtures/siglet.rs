@@ -22,6 +22,7 @@ static SIGLET_DEPLOYMENT: OnceCell<Arc<SigletDeployment>> = OnceCell::const_new(
 /// Information about the deployed Siglet instance.
 pub struct SigletDeployment {
     pub pod_name: String,
+    pub siglet_api_port: u16,
     pub signaling_port: u16,
     pub refresh_api_port: u16,
     // Keeps the kubectl port-forward processes alive for the lifetime of this handle.
@@ -72,18 +73,74 @@ pub async fn ensure_siglet_deployed() -> Result<Arc<SigletDeployment>> {
 
             println!("Siglet deployed: pod={}", pod_name);
 
+            let (siglet_api_port, siglet_api_child) = setup_siglet_api_port_forward().await?;
             let (signaling_port, signaling_child) = setup_signaling_port_forward().await?;
             let (refresh_api_port, refresh_child) = setup_refresh_port_forward().await?;
 
             Ok(Arc::new(SigletDeployment {
                 pod_name,
+                siglet_api_port,
                 signaling_port,
                 refresh_api_port,
-                _port_forwards: Mutex::new(vec![signaling_child, refresh_child]),
+                _port_forwards: Mutex::new(vec![siglet_api_child, signaling_child, refresh_child]),
             }))
         })
         .await
         .map(|arc| arc.clone())
+}
+
+/// Sets up port forwarding for the Siglet management API (port 8080) and returns the local port
+/// along with the child process handle (kept alive to maintain the forward).
+async fn setup_siglet_api_port_forward() -> Result<(u16, std::process::Child)> {
+    let local_port = get_available_port();
+
+    let mut child = std::process::Command::new("kubectl")
+        .args([
+            "port-forward",
+            "-n",
+            E2E_NAMESPACE,
+            "service/siglet",
+            &format!("{}:8080", local_port),
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .context("Failed to start kubectl port-forward for siglet API")?;
+
+    let client = Client::new();
+    let start = std::time::Instant::now();
+    let timeout_secs = 30;
+
+    loop {
+        if start.elapsed().as_secs() > timeout_secs {
+            let _ = child.kill();
+            anyhow::bail!(
+                "Failed to establish port-forward to siglet API (8080) on local port {} after {} seconds",
+                local_port,
+                timeout_secs
+            );
+        }
+
+        match child
+            .try_wait()
+            .context("Failed to poll kubectl port-forward process")?
+        {
+            Some(status) => anyhow::bail!("kubectl port-forward (siglet API) exited unexpectedly: {}", status),
+            None => {}
+        }
+
+        if client
+            .get(format!("http://localhost:{}/health", local_port))
+            .timeout(tokio::time::Duration::from_secs(1))
+            .send()
+            .await
+            .is_ok()
+        {
+            return Ok((local_port, child));
+        }
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    }
 }
 
 /// Sets up port forwarding for the Signaling API (port 8081) and returns the local port
