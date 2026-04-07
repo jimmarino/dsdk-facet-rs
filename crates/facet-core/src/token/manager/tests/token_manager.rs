@@ -974,10 +974,7 @@ async fn test_validate_token_not_in_store() {
         .await
         .expect("remove should succeed");
 
-    let result = fixture
-        .manager
-        .validate_token(&pc.audience, &pair.token)
-        .await;
+    let result = fixture.manager.validate_token(&pc.audience, &pair.token).await;
 
     assert!(result.is_err(), "Token removed from store should be rejected");
     assert!(
