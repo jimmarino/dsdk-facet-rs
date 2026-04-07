@@ -92,6 +92,7 @@ async fn refresh_token(
 }
 
 /// Extracts the Bearer token from the Authorization header.
+#[allow(clippy::result_large_err)]
 fn extract_bearer(headers: &HeaderMap) -> Result<&str, Response> {
     let auth_err = |msg: &'static str| (StatusCode::UNAUTHORIZED, msg).into_response();
 
