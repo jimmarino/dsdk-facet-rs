@@ -14,13 +14,14 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
 };
 use bon::Builder;
 use dsdk_facet_core::context::ParticipantContext;
+use dsdk_facet_core::jwt::{JwtVerificationError, JwtVerifier};
 use dsdk_facet_core::token::TokenError;
 use dsdk_facet_core::token::client::TokenClientApi;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 #[derive(Serialize)]
@@ -28,10 +29,16 @@ pub struct TokenResponse {
     pub token: String,
 }
 
+#[derive(Deserialize)]
+pub struct VerifyTokenRequest {
+    pub token: String,
+}
+
 /// Handler for token retrieval operations
 #[derive(Clone, Builder)]
 pub struct TokenApiHandler {
     token_client_api: Arc<TokenClientApi>,
+    jwt_verifier: Arc<dyn JwtVerifier>,
 }
 
 impl TokenApiHandler {
@@ -41,6 +48,7 @@ impl TokenApiHandler {
                 "/tokens/{participant_context_id}/{id}",
                 get(get_token).delete(delete_token),
             )
+            .route("/tokens/verify/{audience}", post(verify_token))
             .with_state(self)
     }
 }
@@ -72,5 +80,24 @@ async fn delete_token(
         Err(TokenError::TokenNotFound { .. }) => (StatusCode::NOT_FOUND, "Token not found").into_response(),
         Err(TokenError::NotAuthorized(msg)) => (StatusCode::UNAUTHORIZED, msg).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+async fn verify_token(
+    State(handler): State<TokenApiHandler>,
+    Path(audience): Path<String>,
+    Json(body): Json<VerifyTokenRequest>,
+) -> Response {
+    match handler.jwt_verifier.verify_token(&audience, &body.token).await {
+        Ok(claims) => (StatusCode::OK, Json(claims)).into_response(),
+        Err(JwtVerificationError::InvalidFormat) => (StatusCode::BAD_REQUEST, "Invalid token format").into_response(),
+        Err(JwtVerificationError::InvalidSignature) => {
+            (StatusCode::UNAUTHORIZED, "Invalid token signature").into_response()
+        }
+        Err(JwtVerificationError::TokenExpired) => (StatusCode::UNAUTHORIZED, "Token has expired").into_response(),
+        Err(JwtVerificationError::TokenNotYetValid) => {
+            (StatusCode::UNAUTHORIZED, "Token is not yet valid").into_response()
+        }
+        Err(JwtVerificationError::VerificationFailed(msg)) => (StatusCode::UNAUTHORIZED, msg).into_response(),
     }
 }

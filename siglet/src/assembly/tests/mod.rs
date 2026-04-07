@@ -14,8 +14,8 @@
 
 use crate::assembly::{create_siglet_handler, create_token_manager, generate_server_secret};
 use crate::config::SigletConfig;
-use dsdk_facet_core::context::ParticipantContext;
 use async_trait::async_trait;
+use dsdk_facet_core::context::ParticipantContext;
 use dsdk_facet_core::jwt::{JwtGenerationError, JwtGenerator, JwtVerificationError, JwtVerifier, TokenClaims};
 use dsdk_facet_core::token::client::MemoryTokenStore;
 use dsdk_facet_core::token::manager::MemoryRenewableTokenStore;

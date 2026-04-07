@@ -10,7 +10,6 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::context::ParticipantContext;
 use crate::jwt::{KeyFormat, LocalJwtGenerator, LocalJwtVerifier, SigningAlgorithm};
 use crate::test_fixtures::{StaticSigningKeyResolver, StaticVerificationKeyResolver};
 use crate::vault::{KeyMetadata, PublicKeyFormat, VaultError, VaultSigningClient};
@@ -104,11 +103,7 @@ impl MockVaultSigningClient {
 
 #[async_trait]
 impl VaultSigningClient for MockVaultSigningClient {
-    async fn get_key_metadata(
-        &self,
-        _participant_context: &ParticipantContext,
-        format: PublicKeyFormat,
-    ) -> Result<KeyMetadata, VaultError> {
+    async fn get_key_metadata(&self, format: PublicKeyFormat) -> Result<KeyMetadata, VaultError> {
         // Generate a mock Ed25519 public key (32 bytes)
         // Using a deterministic value for testing consistency
         let mock_ed25519_pubkey = [
@@ -125,7 +120,7 @@ impl VaultSigningClient for MockVaultSigningClient {
             }
             PublicKeyFormat::Base64Url => {
                 // Encode raw Ed25519 key (32 bytes) as base64url
-                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&mock_ed25519_pubkey)
+                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(mock_ed25519_pubkey)
             }
         };
 
@@ -136,11 +131,7 @@ impl VaultSigningClient for MockVaultSigningClient {
         })
     }
 
-    async fn sign_content(
-        &self,
-        _participant_context: &ParticipantContext,
-        _content: &[u8],
-    ) -> Result<Vec<u8>, VaultError> {
+    async fn sign_content(&self, _content: &[u8]) -> Result<Vec<u8>, VaultError> {
         Ok(self.signature_bytes.clone())
     }
 }

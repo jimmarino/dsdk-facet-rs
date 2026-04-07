@@ -439,7 +439,9 @@ async fn test_resolve_key_network_error() {
     // Use a server that doesn't exist
     let resolver = DidWebVerificationKeyResolver::builder().build();
 
-    let result = resolver.resolve_key("did:web:nonexistent.invalid.domain.test", "key-1").await;
+    let result = resolver
+        .resolve_key("did:web:nonexistent.invalid.domain.test", "key-1")
+        .await;
 
     assert!(result.is_err());
 }

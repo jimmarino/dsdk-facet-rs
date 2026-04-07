@@ -14,6 +14,7 @@
 
 use chrono::Utc;
 use dsdk_facet_core::context::ParticipantContext;
+use dsdk_facet_core::jwt::{JwtVerificationError, JwtVerifier, TokenClaims};
 use dsdk_facet_core::lock::MemoryLockManager;
 use dsdk_facet_core::token::TokenError;
 use dsdk_facet_core::token::client::{MemoryTokenStore, TokenClient, TokenClientApi, TokenData, TokenStore};
@@ -24,6 +25,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 struct NoOpTokenClient;
+
+struct NoOpJwtVerifier;
+
+#[async_trait::async_trait]
+impl JwtVerifier for NoOpJwtVerifier {
+    async fn verify_token(&self, _audience: &str, _token: &str) -> Result<TokenClaims, JwtVerificationError> {
+        unimplemented!("not needed for this test")
+    }
+}
 
 #[async_trait::async_trait]
 impl TokenClient for NoOpTokenClient {
@@ -69,7 +79,10 @@ async fn test_token_operations() {
             .build(),
     );
 
-    let handler = TokenApiHandler::builder().token_client_api(token_client_api).build();
+    let handler = TokenApiHandler::builder()
+        .token_client_api(token_client_api)
+        .jwt_verifier(Arc::new(NoOpJwtVerifier))
+        .build();
 
     let port = get_available_port();
     let addr = SocketAddr::from(([127, 0, 0, 1], port));

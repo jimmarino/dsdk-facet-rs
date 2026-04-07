@@ -398,11 +398,7 @@ impl Drop for HashicorpVaultClient {
 
 #[async_trait]
 impl VaultSigningClient for HashicorpVaultClient {
-    async fn get_key_metadata(
-        &self,
-        _participant_context: &ParticipantContext,
-        format: PublicKeyFormat,
-    ) -> Result<KeyMetadata, VaultError> {
+    async fn get_key_metadata(&self, format: PublicKeyFormat) -> Result<KeyMetadata, VaultError> {
         let state = self.ensure_initialized()?;
 
         let original_key_name = self
@@ -470,11 +466,7 @@ impl VaultSigningClient for HashicorpVaultClient {
         })
     }
 
-    async fn sign_content(
-        &self,
-        _participant_context: &ParticipantContext,
-        content: &[u8],
-    ) -> Result<Vec<u8>, VaultError> {
+    async fn sign_content(&self, content: &[u8]) -> Result<Vec<u8>, VaultError> {
         let state = self.ensure_initialized()?;
         let url = self.transit_sign_url()?;
         let token = {

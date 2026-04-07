@@ -374,7 +374,10 @@ async fn test_pull_operations() -> Result<()> {
         .post(&refresh_url)
         .header("Content-Type", "application/x-www-form-urlencoded")
         .header("Authorization", format!("Bearer {}", bearer_jwt))
-        .body(format!("grant_type=refresh_token&refresh_token={}", refresh_token_value))
+        .body(format!(
+            "grant_type=refresh_token&refresh_token={}",
+            refresh_token_value
+        ))
         .send()
         .await
         .context("Token refresh request failed")?;

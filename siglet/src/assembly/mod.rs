@@ -19,6 +19,7 @@ use dataplane_sdk::core::db::memory::MemoryContext;
 use dataplane_sdk::sdk::DataPlaneSdk;
 use dsdk_facet_core::jwt::{
     DidWebVerificationKeyResolver, JwtGenerator, JwtVerifier, LocalJwtVerifier, SigningAlgorithm, VaultJwtGenerator,
+    VaultVerificationKeyResolver,
 };
 use dsdk_facet_core::lock::{LockManager, MemoryLockManager};
 use dsdk_facet_core::token::client::oauth::OAuth2TokenClient;
@@ -87,7 +88,7 @@ pub struct SigletRuntime {
 /// receive references to the same shared services.
 pub async fn assemble(cfg: &SigletConfig) -> Result<SigletRuntime, SigletError> {
     let vault_client = create_vault_client(cfg).await?;
-    let (jwt_generator, jwt_verifier) = create_jwt_components(vault_client, cfg.use_http_resolution);
+    let (jwt_generator, jwt_verifier) = create_jwt_components(vault_client.clone(), cfg.use_http_resolution);
     let server_secret = generate_server_secret(cfg)?;
 
     let (token_store, renewable_token_store, lock_manager) = match cfg.storage_backend {
@@ -113,14 +114,22 @@ pub async fn assemble(cfg: &SigletConfig) -> Result<SigletRuntime, SigletError> 
     let token_manager = create_token_manager(
         cfg,
         jwt_generator.clone(),
-        jwt_verifier,
+        jwt_verifier.clone(),
         server_secret,
         renewable_token_store,
     );
 
     let sdk = assemble_memory_sdk(cfg, token_store.clone(), token_manager.clone()).await?;
     let refresh_handler = assemble_refresh_api(token_manager);
-    let token_api_handler = assemble_token_api(token_store, lock_manager, jwt_generator, Client::new(), cfg);
+    let client = Client::new(); // TODO add client config options
+    let token_api_handler = assemble_token_api(
+        token_store,
+        lock_manager,
+        jwt_generator,
+        vault_client.clone(),
+        client,
+        cfg,
+    );
 
     Ok(SigletRuntime {
         sdk,
@@ -221,9 +230,24 @@ pub fn assemble_token_api(
     token_store: Arc<dyn TokenStore>,
     lock_manager: Arc<dyn LockManager>,
     generator: Arc<dyn JwtGenerator>,
+    vault_client: Arc<dyn VaultSigningClient>,
     http_client: Client,
     cfg: &SigletConfig,
 ) -> TokenApiHandler {
+    // Create a new verifier that uses the vsult key for verification
+    let verification_key_resolver = Arc::new(
+        VaultVerificationKeyResolver::builder()
+            .vault_client(vault_client)
+            .build(),
+    );
+
+    let jwt_verifier = Arc::new(
+        LocalJwtVerifier::builder()
+            .verification_key_resolver(verification_key_resolver)
+            .signing_algorithm(SigningAlgorithm::EdDSA)
+            .build(),
+    );
+
     let token_client = Arc::new(
         OAuth2TokenClient::builder()
             .jwt_generator(generator)
@@ -239,7 +263,10 @@ pub fn assemble_token_api(
             .lock_manager(lock_manager)
             .build(),
     );
-    TokenApiHandler::builder().token_client_api(client_api).build()
+    TokenApiHandler::builder()
+        .token_client_api(client_api)
+        .jwt_verifier(jwt_verifier)
+        .build()
 }
 
 // ============================================================================

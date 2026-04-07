@@ -613,8 +613,8 @@ fn test_multiple_validation_errors() {
 #[test]
 fn test_all_possible_errors() {
     let config = SigletConfig {
-        siglet_api_port: 0, // Error 1
-        signaling_port: 0,  // Error 2
+        siglet_api_port: 0,  // Error 1
+        signaling_port: 0,   // Error 2
         refresh_api_port: 0, // Error 3
         bind: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
         storage_backend: StorageBackend::Postgres, // Error 4
