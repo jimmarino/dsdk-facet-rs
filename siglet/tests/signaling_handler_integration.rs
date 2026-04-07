@@ -689,7 +689,8 @@ fn create_jwt_token_manager() -> Arc<JwtTokenManager> {
             .clock(clock)
             .token_store(token_store)
             .token_generator(generator)
-            .token_verifier(verifier)
+            .client_verifier(verifier.clone())
+            .provider_verifier(verifier)
             .build(),
     )
 }

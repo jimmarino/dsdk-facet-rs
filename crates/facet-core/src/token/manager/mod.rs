@@ -58,6 +58,8 @@ pub trait TokenManager: Send + Sync {
     async fn renew(&self, bound_token: &str, refresh_token: &str) -> Result<RenewableTokenPair, TokenError>;
 
     async fn revoke_token(&self, participant_context: &ParticipantContext, flow_id: &str) -> Result<(), TokenError>;
+
+    async fn validate_token(&self, audience: &str, token: &str) -> Result<TokenClaims, TokenError>;
 }
 
 /// A struct representing a pair of tokens used for authentication and periodic renewal.
@@ -170,7 +172,8 @@ pub struct JwtTokenManager {
 
     token_store: Arc<dyn RenewableTokenStore>,
     token_generator: Arc<dyn JwtGenerator>,
-    token_verifier: Arc<dyn JwtVerifier>,
+    client_verifier: Arc<dyn JwtVerifier>,
+    provider_verifier: Arc<dyn JwtVerifier>,
 }
 
 impl JwtTokenManager {
@@ -302,7 +305,7 @@ impl TokenManager for JwtTokenManager {
             .await
             .map_err(|_| TokenError::NotAuthorized("Invalid refresh token".to_string()))?;
 
-        let verified_claims = self.token_verifier.verify_token(&entry.audience, bound_token).await?;
+        let verified_claims = self.client_verifier.verify_token(&entry.audience, bound_token).await?;
         if verified_claims.sub != entry.subject {
             return Err(TokenError::NotAuthorized("Subject mismatch".to_string()));
         }
@@ -356,5 +359,19 @@ impl TokenManager for JwtTokenManager {
 
     async fn revoke_token(&self, _participant_context: &ParticipantContext, flow_id: &str) -> Result<(), TokenError> {
         self.token_store.remove_by_flow_id(flow_id).await
+    }
+
+    async fn validate_token(&self, audience: &str, token: &str) -> Result<TokenClaims, TokenError> {
+        let claims = self.provider_verifier.verify_token(audience, token).await?;
+        let jti = claims
+            .custom
+            .get("jti")
+            .and_then(|v| v.as_str())
+            .ok_or(TokenError::Invalid())?;
+        self.token_store
+            .find_by_id(jti)
+            .await
+            .map_err(|_| TokenError::NotAuthorized("Token not found".to_string()))?;
+        Ok(claims)
     }
 }

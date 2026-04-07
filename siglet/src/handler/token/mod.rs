@@ -18,9 +18,9 @@ use axum::{
 };
 use bon::Builder;
 use dsdk_facet_core::context::ParticipantContext;
-use dsdk_facet_core::jwt::{JwtVerificationError, JwtVerifier};
 use dsdk_facet_core::token::TokenError;
 use dsdk_facet_core::token::client::TokenClientApi;
+use dsdk_facet_core::token::manager::TokenManager;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -39,7 +39,7 @@ pub struct VerifyTokenRequest {
 #[derive(Clone, Builder)]
 pub struct TokenApiHandler {
     token_client_api: Arc<TokenClientApi>,
-    jwt_verifier: Arc<dyn JwtVerifier>,
+    token_manager: Arc<dyn TokenManager>,
 }
 
 impl TokenApiHandler {
@@ -85,16 +85,11 @@ async fn delete_token(
 }
 
 async fn verify_token(State(handler): State<TokenApiHandler>, Json(body): Json<VerifyTokenRequest>) -> Response {
-    match handler.jwt_verifier.verify_token(&body.audience, &body.token).await {
+    match handler.token_manager.validate_token(&body.audience, &body.token).await {
         Ok(claims) => (StatusCode::OK, Json(claims)).into_response(),
-        Err(JwtVerificationError::InvalidFormat) => (StatusCode::BAD_REQUEST, "Invalid token format").into_response(),
-        Err(JwtVerificationError::InvalidSignature) => {
-            (StatusCode::UNAUTHORIZED, "Invalid token signature").into_response()
-        }
-        Err(JwtVerificationError::TokenExpired) => (StatusCode::UNAUTHORIZED, "Token has expired").into_response(),
-        Err(JwtVerificationError::TokenNotYetValid) => {
-            (StatusCode::UNAUTHORIZED, "Token is not yet valid").into_response()
-        }
-        Err(JwtVerificationError::VerificationFailed(msg)) => (StatusCode::UNAUTHORIZED, msg).into_response(),
+        Err(TokenError::NotAuthorized(msg)) => (StatusCode::UNAUTHORIZED, msg).into_response(),
+        Err(TokenError::Invalid()) => (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
+        Err(TokenError::VerificationError(e)) => (StatusCode::UNAUTHORIZED, e.to_string()).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }

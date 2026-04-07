@@ -65,7 +65,8 @@ fn create_test_manager() -> JwtTokenManager {
         .clock(Arc::new(MockClock::new(fixed_time)) as Arc<dyn Clock>)
         .token_store(Arc::new(MemoryRenewableTokenStore::new()))
         .token_generator(Arc::new(MockJwtGenerator))
-        .token_verifier(Arc::new(MockJwtVerifier))
+        .client_verifier(Arc::new(MockJwtVerifier))
+        .provider_verifier(Arc::new(MockJwtVerifier))
         .build()
 }
 
@@ -199,7 +200,8 @@ async fn test_weak_server_secret_rejected() {
         .clock(Arc::new(MockClock::new(fixed_time)) as Arc<dyn Clock>)
         .token_store(Arc::new(MemoryRenewableTokenStore::new()))
         .token_generator(Arc::new(MockJwtGenerator))
-        .token_verifier(Arc::new(MockJwtVerifier))
+        .client_verifier(Arc::new(MockJwtVerifier))
+        .provider_verifier(Arc::new(MockJwtVerifier))
         .build();
 
     let pc = ParticipantContext::builder().id("test_participant").build();
@@ -232,7 +234,8 @@ async fn test_empty_server_secret_rejected() {
         .clock(Arc::new(MockClock::new(fixed_time)) as Arc<dyn Clock>)
         .token_store(Arc::new(MemoryRenewableTokenStore::new()))
         .token_generator(Arc::new(MockJwtGenerator))
-        .token_verifier(Arc::new(MockJwtVerifier))
+        .client_verifier(Arc::new(MockJwtVerifier))
+        .provider_verifier(Arc::new(MockJwtVerifier))
         .build();
 
     let pc = ParticipantContext::builder().id("test_participant").build();
@@ -265,7 +268,8 @@ async fn test_valid_server_secret_accepted() {
         .clock(Arc::new(MockClock::new(fixed_time)) as Arc<dyn Clock>)
         .token_store(Arc::new(MemoryRenewableTokenStore::new()))
         .token_generator(Arc::new(MockJwtGenerator))
-        .token_verifier(Arc::new(MockJwtVerifier))
+        .client_verifier(Arc::new(MockJwtVerifier))
+        .provider_verifier(Arc::new(MockJwtVerifier))
         .build();
 
     let pc = ParticipantContext::builder().id("test_participant").build();
@@ -420,7 +424,8 @@ fn test_custom_refresh_token_size() {
         .clock(Arc::new(MockClock::new(fixed_time)) as Arc<dyn Clock>)
         .token_store(Arc::new(MemoryRenewableTokenStore::new()))
         .token_generator(Arc::new(MockJwtGenerator))
-        .token_verifier(Arc::new(MockJwtVerifier))
+        .client_verifier(Arc::new(MockJwtVerifier))
+        .provider_verifier(Arc::new(MockJwtVerifier))
         .build();
 
     let (token, hash) = manager.create_renewal_token().unwrap();
@@ -451,7 +456,8 @@ fn test_default_refresh_token_size() {
         .clock(Arc::new(MockClock::new(fixed_time)) as Arc<dyn Clock>)
         .token_store(Arc::new(MemoryRenewableTokenStore::new()))
         .token_generator(Arc::new(MockJwtGenerator))
-        .token_verifier(Arc::new(MockJwtVerifier))
+        .client_verifier(Arc::new(MockJwtVerifier))
+        .provider_verifier(Arc::new(MockJwtVerifier))
         .build();
 
     let (token, _hash) = manager.create_renewal_token().unwrap();

@@ -297,6 +297,14 @@ async fn test_on_terminate_revokes_token_successfully() {
             *self.revoke_called.lock().unwrap() = true;
             Ok(())
         }
+
+        async fn validate_token(
+            &self,
+            _audience: &str,
+            _token: &str,
+        ) -> Result<dsdk_facet_core::jwt::TokenClaims, TokenError> {
+            unimplemented!()
+        }
     }
 
     let token_store = Arc::new(MemoryTokenStore::new());
@@ -367,6 +375,14 @@ async fn test_on_terminate_ignores_token_not_found_error() {
             flow_id: &str,
         ) -> Result<(), TokenError> {
             Err(TokenError::token_not_found(flow_id))
+        }
+
+        async fn validate_token(
+            &self,
+            _audience: &str,
+            _token: &str,
+        ) -> Result<dsdk_facet_core::jwt::TokenClaims, TokenError> {
+            unimplemented!()
         }
     }
 
@@ -453,6 +469,14 @@ async fn test_on_terminate_propagates_other_errors() {
         ) -> Result<(), TokenError> {
             Err(TokenError::database_error("Database connection failed"))
         }
+
+        async fn validate_token(
+            &self,
+            _audience: &str,
+            _token: &str,
+        ) -> Result<dsdk_facet_core::jwt::TokenClaims, TokenError> {
+            unimplemented!()
+        }
     }
 
     let token_store = Arc::new(MemoryTokenStore::new());
@@ -511,6 +535,14 @@ impl TokenManager for MockTokenManager {
 
     async fn revoke_token(&self, _participant_context: &ParticipantContext, _flow_id: &str) -> Result<(), TokenError> {
         Ok(())
+    }
+
+    async fn validate_token(
+        &self,
+        _audience: &str,
+        _token: &str,
+    ) -> Result<dsdk_facet_core::jwt::TokenClaims, TokenError> {
+        unimplemented!()
     }
 }
 

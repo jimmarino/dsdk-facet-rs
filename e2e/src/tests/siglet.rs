@@ -437,7 +437,37 @@ async fn test_pull_operations() -> Result<()> {
         refresh_result
     );
 
-    // Step 6: Provider terminates the transfer
+    let new_access_token = refresh_result["access_token"].as_str().unwrap();
+
+    // Step 6: Old token should now be rejected (it was rotated out by the refresh).
+    let stale_verify_response = client
+        .post(&verify_url)
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({ "token": token, "audience": "did:web:provider" }))
+        .send()
+        .await
+        .context("Stale token verification request failed")?;
+    assert_eq!(
+        stale_verify_response.status(),
+        reqwest::StatusCode::UNAUTHORIZED,
+        "Old access token should be rejected after refresh"
+    );
+
+    // Step 7: New access token obtained from refresh should be valid.
+    let new_verify_response = client
+        .post(&verify_url)
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({ "token": new_access_token, "audience": "did:web:provider" }))
+        .send()
+        .await
+        .context("New token verification request failed")?;
+    if !new_verify_response.status().is_success() {
+        let status = new_verify_response.status();
+        let body = new_verify_response.text().await.unwrap_or_default();
+        anyhow::bail!("New access token verification returned HTTP {}: {}", status, body);
+    }
+
+    // Step 8: Provider terminates the transfer
     let terminate_message = serde_json::json!({ "reason": "Test termination" });
 
     let terminate_response = client

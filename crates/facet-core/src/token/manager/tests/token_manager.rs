@@ -357,7 +357,7 @@ async fn test_renew_invalid_refresh_token() {
 
     assert!(result.is_err(), "Should reject invalid refresh token");
     match result.unwrap_err() {
-        crate::token::TokenError::NotAuthorized(msg) => {
+        TokenError::NotAuthorized(msg) => {
             assert_eq!(msg, "Invalid refresh token");
         }
         other => panic!("Expected NotAuthorized error, got: {:?}", other),
@@ -398,7 +398,7 @@ async fn test_renew_subject_mismatch() {
 
     assert!(result.is_err(), "Should reject subject mismatch");
     match result.unwrap_err() {
-        crate::token::TokenError::NotAuthorized(msg) => {
+        TokenError::NotAuthorized(msg) => {
             assert_eq!(msg, "Subject mismatch");
         }
         other => panic!("Expected NotAuthorized error, got: {:?}", other),
@@ -443,7 +443,7 @@ async fn test_renew_missing_token_claim() {
 
     assert!(result.is_err(), "Should reject missing token claim");
     match result.unwrap_err() {
-        crate::token::TokenError::NotAuthorized(msg) => {
+        TokenError::NotAuthorized(msg) => {
             assert_eq!(msg, "Missing token claim");
         }
         other => panic!("Expected NotAuthorized error, got: {:?}", other),
@@ -484,7 +484,7 @@ async fn test_renew_token_mismatch() {
 
     assert!(result.is_err(), "Should reject token mismatch");
     match result.unwrap_err() {
-        crate::token::TokenError::NotAuthorized(msg) => {
+        TokenError::NotAuthorized(msg) => {
             assert_eq!(msg, "Invalid token");
         }
         other => panic!("Expected NotAuthorized error, got: {:?}", other),
@@ -771,7 +771,8 @@ fn create_jwt_token_manager(clock: Arc<dyn Clock>) -> TestFixture {
         .clock(clock)
         .token_store(store.clone())
         .token_generator(generator.clone())
-        .token_verifier(verifier.clone())
+        .client_verifier(verifier.clone())
+        .provider_verifier(verifier.clone())
         .build();
 
     TestFixture {
@@ -895,4 +896,92 @@ async fn test_revoke_token_removes_from_all_indices() {
     assert!(fixture.store.find_by_id(&token_id).await.is_err());
     assert!(fixture.store.find_by_renewal(&hashed_refresh).await.is_err());
     assert!(fixture.store.find_by_flow_id("flow_456").await.is_err());
+}
+
+// =============================================================================
+// validate_token Tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_validate_token_success() {
+    let fixed_time = DateTime::from_timestamp(1000000000, 0).unwrap();
+    let clock = Arc::new(MockClock::new(fixed_time)) as Arc<dyn Clock>;
+    let fixture = create_jwt_token_manager(clock);
+
+    let pc = ParticipantContext::builder()
+        .id("12345")
+        .identifier("did:web:provider.com")
+        .audience("did:web:provider.com")
+        .build();
+
+    let pair = fixture
+        .manager
+        .generate_pair(&pc, "did:web:consumer.com", HashMap::new(), "flow_validate".to_string())
+        .await
+        .expect("generate_pair should succeed");
+
+    let claims = fixture
+        .manager
+        .validate_token(&pc.audience, &pair.token)
+        .await
+        .expect("validate_token should succeed for a live token");
+
+    assert_eq!(claims.sub, "did:web:consumer.com");
+    assert_eq!(claims.aud, "did:web:provider.com");
+    assert!(claims.custom.contains_key("jti"), "jti should be present in claims");
+}
+
+#[tokio::test]
+async fn test_validate_token_invalid_jwt() {
+    let fixed_time = DateTime::from_timestamp(1000000000, 0).unwrap();
+    let clock = Arc::new(MockClock::new(fixed_time)) as Arc<dyn Clock>;
+    let fixture = create_jwt_token_manager(clock);
+
+    let result = fixture
+        .manager
+        .validate_token("did:web:provider.com", "not.a.valid.jwt")
+        .await;
+
+    assert!(result.is_err(), "Invalid JWT should be rejected");
+    assert!(
+        matches!(result.unwrap_err(), TokenError::VerificationError(_)),
+        "Should return a VerificationError"
+    );
+}
+
+#[tokio::test]
+async fn test_validate_token_not_in_store() {
+    let fixed_time = DateTime::from_timestamp(1000000000, 0).unwrap();
+    let clock = Arc::new(MockClock::new(fixed_time)) as Arc<dyn Clock>;
+    let fixture = create_jwt_token_manager(clock.clone());
+
+    let pc = ParticipantContext::builder()
+        .id("12345")
+        .identifier("did:web:provider.com")
+        .audience("did:web:provider.com")
+        .build();
+
+    let pair = fixture
+        .manager
+        .generate_pair(&pc, "did:web:consumer.com", HashMap::new(), "flow_evicted".to_string())
+        .await
+        .expect("generate_pair should succeed");
+
+    // Remove the token from the store to simulate revocation / expiry
+    fixture
+        .store
+        .remove_by_flow_id("flow_evicted")
+        .await
+        .expect("remove should succeed");
+
+    let result = fixture
+        .manager
+        .validate_token(&pc.audience, &pair.token)
+        .await;
+
+    assert!(result.is_err(), "Token removed from store should be rejected");
+    assert!(
+        matches!(result.unwrap_err(), TokenError::NotAuthorized(_)),
+        "Should return NotAuthorized when token is not in the store"
+    );
 }

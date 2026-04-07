@@ -111,22 +111,24 @@ pub async fn assemble(cfg: &SigletConfig) -> Result<SigletRuntime, SigletError> 
         }
     };
 
+    let vault_provider_verifier = create_vault_verifier(vault_client.clone());
     let token_manager = create_token_manager(
         cfg,
         jwt_generator.clone(),
         jwt_verifier.clone(),
+        vault_provider_verifier,
         server_secret,
         renewable_token_store,
     );
 
     let sdk = assemble_memory_sdk(cfg, token_store.clone(), token_manager.clone()).await?;
-    let refresh_handler = assemble_refresh_api(token_manager);
+    let refresh_handler = assemble_refresh_api(token_manager.clone());
     let client = Client::new(); // TODO add client config options
     let token_api_handler = assemble_token_api(
         token_store,
         lock_manager,
         jwt_generator,
-        vault_client.clone(),
+        token_manager.clone(),
         client,
         cfg,
     );
@@ -230,24 +232,10 @@ pub fn assemble_token_api(
     token_store: Arc<dyn TokenStore>,
     lock_manager: Arc<dyn LockManager>,
     generator: Arc<dyn JwtGenerator>,
-    vault_client: Arc<dyn VaultSigningClient>,
+    token_manager: Arc<dyn TokenManager>,
     http_client: Client,
     cfg: &SigletConfig,
 ) -> TokenApiHandler {
-    // Create a new verifier that uses the vsult key for verification
-    let verification_key_resolver = Arc::new(
-        VaultVerificationKeyResolver::builder()
-            .vault_client(vault_client)
-            .build(),
-    );
-
-    let jwt_verifier = Arc::new(
-        LocalJwtVerifier::builder()
-            .verification_key_resolver(verification_key_resolver)
-            .signing_algorithm(SigningAlgorithm::EdDSA)
-            .build(),
-    );
-
     let token_client = Arc::new(
         OAuth2TokenClient::builder()
             .jwt_generator(generator)
@@ -265,13 +253,28 @@ pub fn assemble_token_api(
     );
     TokenApiHandler::builder()
         .token_client_api(client_api)
-        .jwt_verifier(jwt_verifier)
+        .token_manager(token_manager)
         .build()
 }
 
 // ============================================================================
 // Internal Helpers
 // ============================================================================
+
+/// Creates a JWT verifier backed by the Vault signing key.
+fn create_vault_verifier(vault_client: Arc<HashicorpVaultClient>) -> Arc<dyn JwtVerifier> {
+    let verification_key_resolver = Arc::new(
+        VaultVerificationKeyResolver::builder()
+            .vault_client(vault_client as Arc<dyn VaultSigningClient>)
+            .build(),
+    );
+    Arc::new(
+        LocalJwtVerifier::builder()
+            .verification_key_resolver(verification_key_resolver)
+            .signing_algorithm(SigningAlgorithm::EdDSA)
+            .build(),
+    )
+}
 
 /// Creates JWT generator and verifier components
 fn create_jwt_components(
@@ -326,7 +329,8 @@ fn generate_server_secret(cfg: &SigletConfig) -> Result<Vec<u8>, SigletError> {
 fn create_token_manager(
     cfg: &SigletConfig,
     jwt_generator: Arc<dyn JwtGenerator>,
-    jwt_verifier: Arc<dyn JwtVerifier>,
+    client_verifier: Arc<dyn JwtVerifier>,
+    provider_verifier: Arc<dyn JwtVerifier>,
     server_secret: Vec<u8>,
     renewable_token_store: Arc<dyn RenewableTokenStore>,
 ) -> Arc<dyn TokenManager> {
@@ -346,7 +350,8 @@ fn create_token_manager(
             .server_secret(server_secret)
             .token_store(renewable_token_store)
             .token_generator(jwt_generator)
-            .token_verifier(jwt_verifier)
+            .client_verifier(client_verifier)
+            .provider_verifier(provider_verifier)
             .build(),
     )
 }

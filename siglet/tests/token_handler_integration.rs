@@ -14,23 +14,43 @@
 
 use chrono::Utc;
 use dsdk_facet_core::context::ParticipantContext;
-use dsdk_facet_core::jwt::{JwtVerificationError, JwtVerifier, TokenClaims};
+use dsdk_facet_core::jwt::TokenClaims;
 use dsdk_facet_core::lock::MemoryLockManager;
 use dsdk_facet_core::token::TokenError;
 use dsdk_facet_core::token::client::{MemoryTokenStore, TokenClient, TokenClientApi, TokenData, TokenStore};
+use dsdk_facet_core::token::manager::{RenewableTokenPair, TokenManager};
 use dsdk_facet_testcontainers::utils::{get_available_port, wait_for_port_ready};
 use siglet::handler::token::TokenApiHandler;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
 struct NoOpTokenClient;
 
-struct NoOpJwtVerifier;
+struct NoOpTokenManager;
 
 #[async_trait::async_trait]
-impl JwtVerifier for NoOpJwtVerifier {
-    async fn verify_token(&self, _audience: &str, _token: &str) -> Result<TokenClaims, JwtVerificationError> {
+impl TokenManager for NoOpTokenManager {
+    async fn generate_pair(
+        &self,
+        _participant_context: &ParticipantContext,
+        _subject: &str,
+        _claims: HashMap<String, String>,
+        _flow_id: String,
+    ) -> Result<RenewableTokenPair, TokenError> {
+        unimplemented!("not needed for this test")
+    }
+
+    async fn renew(&self, _bound_token: &str, _refresh_token: &str) -> Result<RenewableTokenPair, TokenError> {
+        unimplemented!("not needed for this test")
+    }
+
+    async fn revoke_token(&self, _participant_context: &ParticipantContext, _flow_id: &str) -> Result<(), TokenError> {
+        unimplemented!("not needed for this test")
+    }
+
+    async fn validate_token(&self, _audience: &str, _token: &str) -> Result<TokenClaims, TokenError> {
         unimplemented!("not needed for this test")
     }
 }
@@ -81,7 +101,7 @@ async fn test_token_operations() {
 
     let handler = TokenApiHandler::builder()
         .token_client_api(token_client_api)
-        .jwt_verifier(Arc::new(NoOpJwtVerifier))
+        .token_manager(Arc::new(NoOpTokenManager))
         .build();
 
     let port = get_available_port();

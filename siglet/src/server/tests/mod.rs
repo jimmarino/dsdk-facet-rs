@@ -47,6 +47,14 @@ impl TokenManager for NoOpTokenManager {
     async fn revoke_token(&self, _ctx: &ParticipantContext, _flow_id: &str) -> Result<(), TokenError> {
         unimplemented!("not used in server tests")
     }
+
+    async fn validate_token(
+        &self,
+        _audience: &str,
+        _token: &str,
+    ) -> Result<dsdk_facet_core::jwt::TokenClaims, TokenError> {
+        unimplemented!("not used in server tests")
+    }
 }
 
 fn no_op_refresh_handler() -> TokenRefreshHandler {

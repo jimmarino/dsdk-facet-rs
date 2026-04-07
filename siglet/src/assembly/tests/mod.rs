@@ -147,7 +147,14 @@ fn test_create_token_manager_with_default_issuer() {
     let secret = vec![0u8; 32];
     let store = Arc::new(MemoryRenewableTokenStore::default());
 
-    let manager = create_token_manager(&cfg, jwt_gen, jwt_ver, secret, store);
+    let manager = create_token_manager(
+        &cfg,
+        jwt_gen,
+        jwt_ver,
+        Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
+        secret,
+        store,
+    );
 
     // Verify manager is created
     assert!(Arc::strong_count(&manager) >= 1);
@@ -163,7 +170,14 @@ fn test_create_token_manager_with_custom_issuer() {
     let secret = vec![0u8; 32];
     let store = Arc::new(MemoryRenewableTokenStore::default());
 
-    let manager = create_token_manager(&cfg, jwt_gen, jwt_ver, secret, store);
+    let manager = create_token_manager(
+        &cfg,
+        jwt_gen,
+        jwt_ver,
+        Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
+        secret,
+        store,
+    );
 
     assert!(Arc::strong_count(&manager) >= 1);
 }
@@ -178,7 +192,14 @@ fn test_create_token_manager_with_custom_refresh_endpoint() {
     let secret = vec![0u8; 32];
     let store = Arc::new(MemoryRenewableTokenStore::default());
 
-    let manager = create_token_manager(&cfg, jwt_gen, jwt_ver, secret, store);
+    let manager = create_token_manager(
+        &cfg,
+        jwt_gen,
+        jwt_ver,
+        Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
+        secret,
+        store,
+    );
 
     assert!(Arc::strong_count(&manager) >= 1);
 }
@@ -195,7 +216,14 @@ fn test_create_token_manager_with_default_refresh_endpoint() {
     let secret = vec![0u8; 32];
     let store = Arc::new(MemoryRenewableTokenStore::default());
 
-    let manager = create_token_manager(&cfg, jwt_gen, jwt_ver, secret, store);
+    let manager = create_token_manager(
+        &cfg,
+        jwt_gen,
+        jwt_ver,
+        Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
+        secret,
+        store,
+    );
 
     assert!(Arc::strong_count(&manager) >= 1);
     // Default should be: http://127.0.0.1:9000/token/refresh
@@ -210,17 +238,38 @@ fn test_create_token_manager_with_different_secret_lengths() {
 
     // 16 bytes
     let secret16 = vec![0u8; 16];
-    let manager16 = create_token_manager(&cfg, jwt_gen.clone(), jwt_ver.clone(), secret16, store.clone());
+    let manager16 = create_token_manager(
+        &cfg,
+        jwt_gen.clone(),
+        jwt_ver.clone(),
+        Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
+        secret16,
+        store.clone(),
+    );
     assert!(Arc::strong_count(&manager16) >= 1);
 
     // 32 bytes
     let secret32 = vec![0u8; 32];
-    let manager32 = create_token_manager(&cfg, jwt_gen.clone(), jwt_ver.clone(), secret32, store.clone());
+    let manager32 = create_token_manager(
+        &cfg,
+        jwt_gen.clone(),
+        jwt_ver.clone(),
+        Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
+        secret32,
+        store.clone(),
+    );
     assert!(Arc::strong_count(&manager32) >= 1);
 
     // 64 bytes
     let secret64 = vec![0u8; 64];
-    let manager64 = create_token_manager(&cfg, jwt_gen, jwt_ver, secret64, store);
+    let manager64 = create_token_manager(
+        &cfg,
+        jwt_gen,
+        jwt_ver,
+        Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
+        secret64,
+        store,
+    );
     assert!(Arc::strong_count(&manager64) >= 1);
 }
 
@@ -232,7 +281,14 @@ fn test_create_token_manager_returns_arc() {
     let secret = vec![0u8; 32];
     let store = Arc::new(MemoryRenewableTokenStore::default());
 
-    let manager = create_token_manager(&cfg, jwt_gen, jwt_ver, secret, store);
+    let manager = create_token_manager(
+        &cfg,
+        jwt_gen,
+        jwt_ver,
+        Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
+        secret,
+        store,
+    );
 
     // Verify it's Arc-wrapped
     let manager_clone = manager.clone();
@@ -255,7 +311,14 @@ fn test_secret_generation_and_token_manager_integration() {
     let jwt_ver = Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>;
     let store = Arc::new(MemoryRenewableTokenStore::default());
 
-    let manager = create_token_manager(&cfg, jwt_gen, jwt_ver, secret, store);
+    let manager = create_token_manager(
+        &cfg,
+        jwt_gen,
+        jwt_ver,
+        Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
+        secret,
+        store,
+    );
     assert!(Arc::strong_count(&manager) >= 1);
 }
 
@@ -274,7 +337,14 @@ fn test_hex_secret_generation_and_token_manager_integration() {
     let jwt_ver = Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>;
     let store = Arc::new(MemoryRenewableTokenStore::default());
 
-    let manager = create_token_manager(&cfg, jwt_gen, jwt_ver, secret, store);
+    let manager = create_token_manager(
+        &cfg,
+        jwt_gen,
+        jwt_ver,
+        Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
+        secret,
+        store,
+    );
     assert!(Arc::strong_count(&manager) >= 1);
 }
 
@@ -288,7 +358,14 @@ fn test_token_manager_and_handler_integration() {
     let secret = vec![0u8; 32];
     let renewable_store = Arc::new(MemoryRenewableTokenStore::default());
 
-    let token_manager = create_token_manager(&cfg, jwt_gen, jwt_ver, secret, renewable_store);
+    let token_manager = create_token_manager(
+        &cfg,
+        jwt_gen,
+        jwt_ver,
+        Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
+        secret,
+        renewable_store,
+    );
     let token_store = Arc::new(MemoryTokenStore::default());
 
     let handler = create_siglet_handler(&cfg, token_store, token_manager);

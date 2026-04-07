@@ -80,7 +80,8 @@ async fn test_token_renewal() {
             .server_secret(SERVER_SECRET.to_vec())
             .token_store(Arc::new(MemoryRenewableTokenStore::new()))
             .token_generator(provider_generator)
-            .token_verifier(verifier)
+            .client_verifier(verifier.clone())
+            .provider_verifier(verifier)
             .build(),
     );
 
