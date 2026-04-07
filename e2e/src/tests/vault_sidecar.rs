@@ -19,8 +19,8 @@
 use crate::utils::*;
 use anyhow::{Context, Result};
 
-/// Generates a unique pod manifest with a given pod name
-/// This allows multiple tests to run in parallel without conflicts
+/// Generates a unique pod manifest with a given pod name.
+/// Allows multiple tests to run in parallel without conflicts.
 fn generate_test_pod_manifest(pod_name: &str) -> String {
     format!(
         r#"---
@@ -126,37 +126,6 @@ spec:
 "#,
         pod_name = pod_name
     )
-}
-
-/// Setup function to verify E2E environment is ready
-async fn verify_e2e_setup() -> Result<()> {
-    // Check Kind cluster exists
-    if !kind_cluster_exists(KIND_CLUSTER_NAME)? {
-        anyhow::bail!(
-            "Kind cluster '{}' not found. Run 'cd e2e && ./scripts/setup.sh' first.",
-            KIND_CLUSTER_NAME
-        );
-    }
-
-    // Check kubectl is configured
-    if !kubectl_configured()? {
-        anyhow::bail!("kubectl not configured or cluster not accessible");
-    }
-
-    // Check namespace exists
-    if !namespace_exists(E2E_NAMESPACE)? {
-        anyhow::bail!(
-            "Namespace '{}' not found. Run 'cd e2e && ./scripts/setup.sh' first.",
-            E2E_NAMESPACE
-        );
-    }
-
-    // Check Vault deployment is ready
-    wait_for_deployment_ready(E2E_NAMESPACE, "vault", 60)
-        .await
-        .context("Vault deployment not ready")?;
-
-    Ok(())
 }
 
 /// Test that HashicorpVaultClient with FileBasedVaultAuthClient works in K8s

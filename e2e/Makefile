@@ -1,14 +1,15 @@
 # Makefile for E2E tests
 # Makes it easier to run common commands
 
-.PHONY: help setup verify build build-siglet rebuild-siglet test test-fast test-verbose cleanup clean all
+.PHONY: help setup setup-consumer-did verify build build-siglet rebuild-siglet test test-fast test-verbose cleanup clean all
 
 # Detect if cargo-nextest is available
 NEXTEST_INSTALLED := $(shell command -v cargo-nextest 2> /dev/null)
 
 help:
 	@echo "E2E Test Commands:"
-	@echo "  make setup          - Setup Kind cluster and deploy Vault"
+	@echo "  make setup              - Setup Kind cluster and deploy all infrastructure"
+	@echo "  make setup-consumer-did - Provision consumer DID server (idempotent)"
 	@echo "  make verify         - Verify E2E environment is ready"
 	@echo "  make build          - Build the vault-test Docker image"
 	@echo "  make build-siglet   - Build Siglet image (full build, ~2-5 min)"
@@ -26,6 +27,9 @@ help:
 setup:
 	@./scripts/setup.sh
 
+setup-consumer-did:
+	@./scripts/setup-consumer-did.sh
+
 verify:
 	@./scripts/verify-setup.sh
 
@@ -38,7 +42,7 @@ build-siglet:
 rebuild-siglet:
 	@SIGLET_BUILD_MODE=iterative ./scripts/build-and-load-siglet.sh
 
-test: build build-siglet
+test: build build-siglet setup-consumer-did
 ifdef NEXTEST_INSTALLED
 	@echo "Running tests with cargo-nextest..."
 	@cd .. && cargo nextest run --package dsdk-facet-e2e-tests --features e2e --run-ignored only
@@ -48,7 +52,7 @@ else
 	@cd .. && cargo test --package dsdk-facet-e2e-tests --features e2e -- --ignored
 endif
 
-test-fast: build rebuild-siglet
+test-fast: build rebuild-siglet setup-consumer-did
 ifdef NEXTEST_INSTALLED
 	@echo "Running tests with cargo-nextest..."
 	@cd .. && cargo nextest run --package dsdk-facet-e2e-tests --features e2e --run-ignored only
@@ -57,7 +61,7 @@ else
 	@cd .. && cargo test --package dsdk-facet-e2e-tests --features e2e -- --ignored
 endif
 
-test-verbose: build build-siglet
+test-verbose: build build-siglet setup-consumer-did
 ifdef NEXTEST_INSTALLED
 	@echo "Running tests with cargo-nextest..."
 	@cd .. && cargo nextest run --package dsdk-facet-e2e-tests --features e2e --run-ignored only --no-capture

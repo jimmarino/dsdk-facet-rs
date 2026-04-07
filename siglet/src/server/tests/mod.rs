@@ -13,44 +13,54 @@
 #![allow(clippy::unwrap_used)]
 
 use crate::error::SigletError;
+use crate::handler::refresh::TokenRefreshHandler;
 use crate::server::handle_task_result;
+use dsdk_facet_core::context::ParticipantContext;
+use dsdk_facet_core::token::TokenError;
+use dsdk_facet_core::token::manager::{RenewableTokenPair, TokenManager};
+use dsdk_facet_testcontainers::utils::{get_available_port, wait_for_port_ready};
+use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::{JoinError, JoinSet};
 use tokio_util::sync::CancellationToken;
 
-// ============================================================================
-// Test Helpers
-// ============================================================================
+struct NoOpTokenManager;
 
-/// Find an available port by binding to port 0 and returning the assigned port
-///
-/// This allows tests to use specific ports for synchronization while avoiding conflicts
-fn find_available_port() -> u16 {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-    drop(listener); // Release the port for the test to use
-    port
-}
-
-/// Wait for a server port to be ready by attempting TCP connections
-///
-/// This is more efficient and reliable than arbitrary sleep durations:
-/// - Returns immediately when server is ready (typically <10ms)
-/// - Works reliably on both fast and slow machines
-/// - Tests actual server readiness (port accepting connections)
-async fn wait_for_port_ready(addr: SocketAddr, timeout: Duration) -> Result<(), String> {
-    let deadline = tokio::time::Instant::now() + timeout;
-
-    while tokio::time::Instant::now() < deadline {
-        if tokio::net::TcpStream::connect(addr).await.is_ok() {
-            return Ok(());
-        }
-        // Brief sleep between connection attempts to avoid spinning
-        tokio::time::sleep(Duration::from_millis(10)).await;
+#[async_trait::async_trait]
+impl TokenManager for NoOpTokenManager {
+    async fn generate_pair(
+        &self,
+        _ctx: &ParticipantContext,
+        _subject: &str,
+        _claims: HashMap<String, String>,
+        _flow_id: String,
+    ) -> Result<RenewableTokenPair, TokenError> {
+        unimplemented!("not used in server tests")
     }
 
-    Err(format!("Server at {} did not become ready within {:?}", addr, timeout))
+    async fn renew(&self, _bound_token: &str, _refresh_token: &str) -> Result<RenewableTokenPair, TokenError> {
+        unimplemented!("not used in server tests")
+    }
+
+    async fn revoke_token(&self, _ctx: &ParticipantContext, _flow_id: &str) -> Result<(), TokenError> {
+        unimplemented!("not used in server tests")
+    }
+
+    async fn validate_token(
+        &self,
+        _audience: &str,
+        _token: &str,
+    ) -> Result<dsdk_facet_core::jwt::TokenClaims, TokenError> {
+        unimplemented!("not used in server tests")
+    }
+}
+
+fn no_op_refresh_handler() -> TokenRefreshHandler {
+    TokenRefreshHandler::builder()
+        .token_manager(Arc::new(NoOpTokenManager))
+        .build()
 }
 
 // ============================================================================
@@ -160,7 +170,7 @@ async fn test_port_conflict_propagates() {
     let cancel_token = CancellationToken::new();
 
     // Try to bind to the same port - should fail
-    let result = crate::server::run_siglet_api(bind, port, cancel_token).await;
+    let result = crate::server::run_refresh_api(bind, port, no_op_refresh_handler(), cancel_token).await;
 
     assert!(result.is_err());
     drop(listener);
@@ -171,12 +181,14 @@ async fn test_cancellation_token_stops_server() {
     use std::net::{IpAddr, Ipv4Addr};
 
     let bind = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-    let port = find_available_port();
+    let port = get_available_port();
     let cancel_token = CancellationToken::new();
     let cancel_token_clone = cancel_token.clone();
 
-    // Spawn server on specific port
-    let handle = tokio::spawn(async move { crate::server::run_siglet_api(bind, port, cancel_token_clone).await });
+    // Spawn refresh API server on specific port
+    let handle = tokio::spawn(async move {
+        crate::server::run_refresh_api(bind, port, no_op_refresh_handler(), cancel_token_clone).await
+    });
 
     // Wait for server to be ready (port accepting connections)
     let addr = SocketAddr::new(bind, port);
@@ -200,11 +212,13 @@ async fn test_server_graceful_shutdown_with_cancellation() {
     use std::net::{IpAddr, Ipv4Addr};
 
     let bind = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-    let port = find_available_port();
+    let port = get_available_port();
     let cancel_token = CancellationToken::new();
     let cancel_token_clone = cancel_token.clone();
 
-    let handle = tokio::spawn(async move { crate::server::run_siglet_api(bind, port, cancel_token_clone).await });
+    let handle = tokio::spawn(async move {
+        crate::server::run_refresh_api(bind, port, no_op_refresh_handler(), cancel_token_clone).await
+    });
 
     // Wait for server to be ready (port accepting connections)
     let addr = SocketAddr::new(bind, port);

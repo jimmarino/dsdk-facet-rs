@@ -10,6 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
+use async_trait::async_trait;
 use dsdk_facet_core::auth::{AuthorizationError, AuthorizationEvaluator, Operation};
 use dsdk_facet_core::context::ParticipantContext;
 use dsdk_facet_core::jwt::{JwtVerificationError, JwtVerifier, TokenClaims};
@@ -65,10 +66,11 @@ pub struct TestJwtVerifier {
     pub scope: String,
 }
 
+#[async_trait]
 impl JwtVerifier for TestJwtVerifier {
-    fn verify_token(
+    async fn verify_token(
         &self,
-        _participant_context: &ParticipantContext,
+        _audience: &str,
         _token: &str,
     ) -> std::result::Result<TokenClaims, JwtVerificationError> {
         let mut custom = Map::new();
@@ -91,10 +93,11 @@ pub struct TokenMatchingJwtVerifier {
     pub scope: String,
 }
 
+#[async_trait]
 impl JwtVerifier for TokenMatchingJwtVerifier {
-    fn verify_token(
+    async fn verify_token(
         &self,
-        _participant_context: &ParticipantContext,
+        _audience: &str,
         token: &str,
     ) -> std::result::Result<TokenClaims, JwtVerificationError> {
         let mut custom = Map::new();
@@ -185,10 +188,11 @@ pub struct DetailedFailureJwtVerifier {
     pub internal_detail: String,
 }
 
+#[async_trait]
 impl JwtVerifier for DetailedFailureJwtVerifier {
-    fn verify_token(
+    async fn verify_token(
         &self,
-        _participant_context: &ParticipantContext,
+        _audience: &str,
         _token: &str,
     ) -> std::result::Result<TokenClaims, JwtVerificationError> {
         Err(JwtVerificationError::VerificationFailed(format!(

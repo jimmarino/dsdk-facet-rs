@@ -20,4 +20,7 @@
 pub mod utils;
 
 #[cfg(all(test, feature = "e2e"))]
+pub mod fixtures;
+
+#[cfg(all(test, feature = "e2e"))]
 pub mod tests;

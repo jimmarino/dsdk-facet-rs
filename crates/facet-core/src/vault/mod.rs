@@ -83,20 +83,11 @@ pub trait VaultSigningClient: Send + Sync {
     /// Returns Ed25519 signing keys and associated metadata.
     ///
     /// # Arguments
-    /// * `participant_context` - The participant context.
     /// * `format` - The desired format for the public keys (Multibase or Base64Url)
-    async fn get_key_metadata(
-        &self,
-        participant_context: &ParticipantContext,
-        format: PublicKeyFormat,
-    ) -> Result<KeyMetadata, VaultError>;
+    async fn get_key_metadata(&self, format: PublicKeyFormat) -> Result<KeyMetadata, VaultError>;
 
     /// Signs content using the current signing key.
-    async fn sign_content(
-        &self,
-        participant_context: &ParticipantContext,
-        content: &[u8],
-    ) -> Result<Vec<u8>, VaultError>;
+    async fn sign_content(&self, content: &[u8]) -> Result<Vec<u8>, VaultError>;
 }
 
 #[derive(Debug, Error)]

@@ -17,5 +17,9 @@ spec:
     port: 8081
     targetPort: signaling
     protocol: TCP
+  - name: refresh
+    port: 8082
+    targetPort: refresh
+    protocol: TCP
   selector:
     app: siglet

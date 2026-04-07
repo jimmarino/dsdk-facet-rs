@@ -94,16 +94,16 @@ async fn test_vault_signing_with_transit() {
     // ============================================================================
     // Run all test scenarios with the initialized client
     // ============================================================================
-    test_key_metadata_multibase(&client, &ctx).await;
-    test_key_metadata_base64url(&client, &ctx).await;
-    test_content_signing_determinism(&client, &ctx).await;
+    test_key_metadata_multibase(&client).await;
+    test_key_metadata_base64url(&client).await;
+    test_content_signing_determinism(&client).await;
     test_jwt_generation(&client, &ctx).await;
 }
 
 /// Test key metadata retrieval in Multibase format
-async fn test_key_metadata_multibase(client: &Arc<HashicorpVaultClient>, ctx: &ParticipantContext) {
+async fn test_key_metadata_multibase(client: &Arc<HashicorpVaultClient>) {
     let metadata = client
-        .get_key_metadata(ctx, PublicKeyFormat::Multibase)
+        .get_key_metadata(PublicKeyFormat::Multibase)
         .await
         .expect("Failed to get key metadata");
 
@@ -139,9 +139,9 @@ async fn test_key_metadata_multibase(client: &Arc<HashicorpVaultClient>, ctx: &P
 }
 
 /// Test key metadata retrieval in Base64Url format
-async fn test_key_metadata_base64url(client: &Arc<HashicorpVaultClient>, ctx: &ParticipantContext) {
+async fn test_key_metadata_base64url(client: &Arc<HashicorpVaultClient>) {
     let metadata = client
-        .get_key_metadata(ctx, PublicKeyFormat::Base64Url)
+        .get_key_metadata(PublicKeyFormat::Base64Url)
         .await
         .expect("Failed to get key metadata in Base64Url format");
 
@@ -185,7 +185,7 @@ async fn test_key_metadata_base64url(client: &Arc<HashicorpVaultClient>, ctx: &P
 }
 
 /// Test content signing for determinism and uniqueness
-async fn test_content_signing_determinism(client: &Arc<HashicorpVaultClient>, ctx: &ParticipantContext) {
+async fn test_content_signing_determinism(client: &Arc<HashicorpVaultClient>) {
     // Create a test payload
     let jwt_payload = json!({
         "sub": "test-subject",
@@ -199,7 +199,7 @@ async fn test_content_signing_determinism(client: &Arc<HashicorpVaultClient>, ct
 
     // Sign the content
     let signature = client
-        .sign_content(ctx, &payload_bytes)
+        .sign_content(&payload_bytes)
         .await
         .expect("Failed to sign content");
 
@@ -218,7 +218,7 @@ async fn test_content_signing_determinism(client: &Arc<HashicorpVaultClient>, ct
     // Sign the same content again and verify we get a consistent signature
     // Note: Vault's Ed25519 implementation appears to be deterministic in practice
     let signature2 = client
-        .sign_content(ctx, &payload_bytes)
+        .sign_content(&payload_bytes)
         .await
         .expect("Failed to sign content second time");
 
@@ -240,7 +240,7 @@ async fn test_content_signing_determinism(client: &Arc<HashicorpVaultClient>, ct
         serde_json::to_vec(&different_payload).expect("Failed to serialize different payload");
 
     let different_signature = client
-        .sign_content(ctx, &different_payload_bytes)
+        .sign_content(&different_payload_bytes)
         .await
         .expect("Failed to sign different content");
 

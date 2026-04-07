@@ -50,6 +50,9 @@ spec:
         - name: signaling
           containerPort: 8081
           protocol: TCP
+        - name: refresh
+          containerPort: 8082
+          protocol: TCP
         env:
         - name: RUST_LOG
           value: "info,siglet=debug"
@@ -57,6 +60,8 @@ spec:
           value: "8080"
         - name: SIGLET_SIGNALING_PORT
           value: "8081"
+        - name: SIGLET_REFRESH_API_PORT
+          value: "8082"
         - name: SIGLET_CONFIG_FILE
           value: "/config/siglet.toml"
         - name: SIGLET_VAULT_URL
@@ -68,7 +73,9 @@ spec:
         - name: SIGLET_TOKEN_ISSUER
           value: "siglet-e2e"
         - name: SIGLET_TOKEN_REFRESH_ENDPOINT
-          value: "http://siglet:8080/token/refresh"
+          value: "http://siglet:8082/token/refresh"
+        - name: SIGLET_USE_HTTP_RESOLUTION
+          value: "true"
         volumeMounts:
         - name: siglet-config
           mountPath: /config

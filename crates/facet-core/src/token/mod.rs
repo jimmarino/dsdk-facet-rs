@@ -19,8 +19,11 @@ pub mod manager;
 /// Errors that can occur during token operations.
 #[derive(Debug, Error)]
 pub enum TokenError {
-    #[error("Not authorized")]
+    #[error("Not authorized: {0}")]
     NotAuthorized(String),
+
+    #[error("Invalid token")]
+    Invalid(),
 
     #[error("Token not found for identifier: {identifier}")]
     TokenNotFound { identifier: String },

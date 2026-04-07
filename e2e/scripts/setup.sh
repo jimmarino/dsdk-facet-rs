@@ -98,6 +98,10 @@ echo "Configuring Vault..."
 echo "Vault configured"
 echo ""
 
+# Deploy consumer DID server
+"${SCRIPT_DIR}/setup-consumer-did.sh"
+echo ""
+
 # Build test client binary and load into Kind
 echo "Building test client image and loading into Kind..."
 "${SCRIPT_DIR}/build-and-load-image.sh"

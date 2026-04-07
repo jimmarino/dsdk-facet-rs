@@ -234,8 +234,8 @@ fn test_verification_method_to_key_material_multibase() {
     let key_material = result.unwrap();
     assert_eq!(key_material.iss, "did:web:example.com");
     assert_eq!(key_material.kid, "key-1");
-    // DER format should be 44 bytes (12 byte prefix + 32 byte key)
-    assert_eq!(key_material.key.len(), 44);
+    // Raw 32-byte Ed25519 public key (jsonwebtoken v10 DecodingKey::from_ed_der expects raw bytes)
+    assert_eq!(key_material.key.len(), 32);
 }
 
 #[test]
@@ -317,12 +317,7 @@ async fn test_resolve_key_full_did_url() {
 
     let resolver = DidWebVerificationKeyResolver::builder().use_https(false).build();
 
-    // Use spawn_blocking to avoid nested runtime issue
-    let did_clone = did.clone();
-    let key_id_clone = key_id.clone();
-    let result = tokio::task::spawn_blocking(move || resolver.resolve_key(&did_clone, &key_id_clone))
-        .await
-        .unwrap();
+    let result = resolver.resolve_key(&did, &key_id).await;
 
     assert!(result.is_ok());
     let key_material = result.unwrap();
@@ -345,11 +340,7 @@ async fn test_resolve_key_fragment_only_kid() {
 
     let resolver = DidWebVerificationKeyResolver::builder().use_https(false).build();
 
-    // Pass just fragment as kid
-    let did_clone = did.clone();
-    let result = tokio::task::spawn_blocking(move || resolver.resolve_key(&did_clone, "#key-1"))
-        .await
-        .unwrap();
+    let result = resolver.resolve_key(&did, "#key-1").await;
 
     assert!(result.is_ok());
 }
@@ -370,11 +361,7 @@ async fn test_resolve_key_bare_fragment_kid() {
 
     let resolver = DidWebVerificationKeyResolver::builder().use_https(false).build();
 
-    // Pass bare fragment as kid (no # prefix)
-    let did_clone = did.clone();
-    let result = tokio::task::spawn_blocking(move || resolver.resolve_key(&did_clone, "key-1"))
-        .await
-        .unwrap();
+    let result = resolver.resolve_key(&did, "key-1").await;
 
     assert!(result.is_ok());
 }
@@ -396,10 +383,7 @@ async fn test_resolve_key_with_path() {
 
     let resolver = DidWebVerificationKeyResolver::builder().use_https(false).build();
 
-    let did_clone = did.clone();
-    let result = tokio::task::spawn_blocking(move || resolver.resolve_key(&did_clone, "signing-key"))
-        .await
-        .unwrap();
+    let result = resolver.resolve_key(&did, "signing-key").await;
 
     assert!(result.is_ok());
 }
@@ -412,11 +396,7 @@ async fn test_resolve_key_missing_fragment() {
     let resolver = DidWebVerificationKeyResolver::builder().use_https(false).build();
 
     // Pass kid without fragment (full DID URL without #)
-    let did_clone = did.clone();
-    let did_clone2 = did.clone();
-    let result = tokio::task::spawn_blocking(move || resolver.resolve_key(&did_clone, &did_clone2))
-        .await
-        .unwrap();
+    let result = resolver.resolve_key(&did, &did).await;
 
     assert!(result.is_err());
     match result.unwrap_err() {
@@ -444,19 +424,13 @@ async fn test_resolve_key_http_vs_https() {
     // Test with HTTP (should work with mock server)
     let resolver_http = DidWebVerificationKeyResolver::builder().use_https(false).build();
 
-    let did_clone = did.clone();
-    let result = tokio::task::spawn_blocking(move || resolver_http.resolve_key(&did_clone, "key-1"))
-        .await
-        .unwrap();
+    let result = resolver_http.resolve_key(&did, "key-1").await;
     assert!(result.is_ok());
 
     // Test with HTTPS (will fail because mock server uses HTTP)
     let resolver_https = DidWebVerificationKeyResolver::builder().use_https(true).build();
 
-    let did_clone2 = did.clone();
-    let result = tokio::task::spawn_blocking(move || resolver_https.resolve_key(&did_clone2, "key-1"))
-        .await
-        .unwrap();
+    let result = resolver_https.resolve_key(&did, "key-1").await;
     assert!(result.is_err());
 }
 
@@ -465,12 +439,107 @@ async fn test_resolve_key_network_error() {
     // Use a server that doesn't exist
     let resolver = DidWebVerificationKeyResolver::builder().build();
 
-    let result =
-        tokio::task::spawn_blocking(move || resolver.resolve_key("did:web:nonexistent.invalid.domain.test", "key-1"))
-            .await
-            .unwrap();
+    let result = resolver
+        .resolve_key("did:web:nonexistent.invalid.domain.test", "key-1")
+        .await;
 
     assert!(result.is_err());
+}
+
+/// Verifies the full Ed25519 sign→DID-document-roundtrip→verify path used by the e2e test.
+///
+/// Specifically:
+///   1. Generate a keypair from a fixed seed (same as `CONSUMER_DID_SEED` in the e2e test).
+///   2. Encode the public key as multibase (same as `create_consumer_did_document`).
+///   3. Sign a JWT with the PKCS#8 DER private key via `LocalJwtGenerator`.
+///   4. Decode the multibase key → `DidWebVerificationKeyResolver::verification_method_to_key_material`.
+///   5. Verify the JWT using `LocalJwtVerifier` with the resolved `KeyMaterial`.
+///
+/// This confirms that `DecodingKey::from_ed_der` accepts the bytes returned by
+/// `verification_method_to_key_material` and that the sign/verify roundtrip is valid.
+#[tokio::test]
+async fn test_did_web_sign_verify_roundtrip_via_multibase() {
+    use crate::context::ParticipantContext;
+    use crate::jwt::jwtutils::{StaticSigningKeyResolver, generate_ed25519_keypair_der};
+    use crate::jwt::{
+        DidWebVerificationKeyResolver, JwtGenerator, JwtVerifier, KeyFormat, LocalJwtGenerator, LocalJwtVerifier,
+        SigningAlgorithm, TokenClaims, VerificationMethod,
+    };
+    use crate::util::crypto::convert_to_multibase;
+    use base64::Engine as _;
+    use std::sync::Arc;
+
+    // Step 1: generate a random Ed25519 keypair
+    let keypair = generate_ed25519_keypair_der().expect("keypair generation");
+
+    // Step 2: encode public key as multibase (mirrors create_consumer_did_document)
+    let public_key_b64 = base64::engine::general_purpose::STANDARD.encode(&keypair.public_key);
+    let public_key_multibase = convert_to_multibase(&public_key_b64).expect("multibase conversion");
+
+    // Step 3: sign a JWT using the PKCS#8 DER private key
+    let resolver = Arc::new(
+        StaticSigningKeyResolver::builder()
+            .key(keypair.private_key)
+            .key_format(KeyFormat::DER)
+            .iss("did:web:consumer")
+            .kid("did:web:consumer#key-1")
+            .build(),
+    );
+    let generator = Arc::new(
+        LocalJwtGenerator::builder()
+            .signing_key_resolver(resolver)
+            .signing_algorithm(SigningAlgorithm::EdDSA)
+            .build(),
+    );
+    let now = chrono::Utc::now().timestamp();
+    let claims = TokenClaims::builder()
+        .iss("did:web:consumer")
+        .sub("did:web:consumer")
+        .aud("did:web:provider")
+        .exp(now + 300)
+        .build();
+    let pc = ParticipantContext::builder()
+        .id("test-participant")
+        .identifier("did:web:consumer")
+        .audience("did:web:provider")
+        .build();
+    let token = generator.generate_token(&pc, claims).await.expect("token generation");
+
+    // Step 4: decode multibase → KeyMaterial (same path as DidWebVerificationKeyResolver)
+    let vm = serde_json::from_value::<VerificationMethod>(serde_json::json!({
+        "id": "did:web:consumer#key-1",
+        "type": "Ed25519VerificationKey2020",
+        "controller": "did:web:consumer",
+        "publicKeyMultibase": public_key_multibase,
+    }))
+    .expect("VerificationMethod deserialization");
+
+    let key_material = DidWebVerificationKeyResolver::verification_method_to_key_material(
+        &vm,
+        "did:web:consumer",
+        "did:web:consumer#key-1",
+    )
+    .expect("key material extraction");
+
+    // Step 5: verify the JWT
+    let static_resolver = Arc::new(
+        crate::jwt::jwtutils::StaticVerificationKeyResolver::builder()
+            .key(key_material.key)
+            .key_format(key_material.key_format)
+            .build(),
+    );
+    let verifier = LocalJwtVerifier::builder()
+        .verification_key_resolver(static_resolver)
+        .signing_algorithm(SigningAlgorithm::EdDSA)
+        .build();
+
+    let result = verifier.verify_token("did:web:provider", &token).await;
+    assert!(
+        result.is_ok(),
+        "JWT verification should succeed: {:?}",
+        result.unwrap_err()
+    );
+    assert_eq!(result.unwrap().sub, "did:web:consumer");
 }
 
 // Test helper to create a valid Ed25519 public key in multibase format

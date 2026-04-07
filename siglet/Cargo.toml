@@ -40,9 +40,11 @@ chrono = { workspace = true }
 hex = "0.4"
 rand = "0.8"
 reqwest = "0.12"
+sqlx = { workspace = true }
 
 [dev-dependencies]
 base64 = { workspace = true }
+dsdk-facet-testcontainers = { path = "../crates/facet-testcontainers" }
 
 [lints]
 workspace = true

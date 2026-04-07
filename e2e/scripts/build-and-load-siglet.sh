@@ -61,12 +61,16 @@ if [ "$BUILD_MODE" = "full" ]; then
     cd "${WORKSPACE_ROOT}/.."
 
     # Use cargo-chef Dockerfile if available for faster rebuilds
+    # Always invalidate the source compilation layer so uncommitted code changes are picked up.
+    # The dependency layer (cargo chef cook) is still cached, so this only adds the time
+    # to compile the siglet crates themselves — not the full dependency tree.
+    CACHE_INVALIDATE=$(date +%s)
     if [ -f "facet-rs/siglet/Dockerfile.chef" ]; then
         echo "Building Siglet Docker image (full build with cargo-chef)..."
-        DOCKER_BUILDKIT=1 docker build --platform linux/amd64 -f facet-rs/siglet/Dockerfile.chef -t "${IMAGE_NAME}" .
+        DOCKER_BUILDKIT=1 docker build --build-arg CACHE_INVALIDATE="${CACHE_INVALIDATE}" --platform linux/amd64 -f facet-rs/siglet/Dockerfile.chef -t "${IMAGE_NAME}" .
     else
         echo "Building Siglet Docker image (full build)..."
-        docker build --platform linux/amd64 -f facet-rs/siglet/Dockerfile -t "${IMAGE_NAME}" .
+        docker build --build-arg CACHE_INVALIDATE="${CACHE_INVALIDATE}" --platform linux/amd64 -f facet-rs/siglet/Dockerfile -t "${IMAGE_NAME}" .
     fi
 
     echo "Docker image built: ${IMAGE_NAME}"
@@ -78,6 +82,19 @@ echo "Loading image into Kind cluster '${KIND_CLUSTER_NAME}'..."
 kind load docker-image "${IMAGE_NAME}" --name "${KIND_CLUSTER_NAME}"
 echo "Image loaded into Kind cluster"
 echo ""
+
+E2E_NAMESPACE="${E2E_NAMESPACE:-vault-e2e-test}"
+
+# Restart the deployment if it exists so pods pick up the new image.
+# `kind load` replaces the image in containerd but Kubernetes won't notice
+# because the tag (`siglet:local`) hasn't changed.
+if kubectl get deployment siglet -n "${E2E_NAMESPACE}" &>/dev/null; then
+    echo "Restarting siglet deployment to pick up new image..."
+    kubectl rollout restart deployment/siglet -n "${E2E_NAMESPACE}"
+    kubectl rollout status deployment/siglet -n "${E2E_NAMESPACE}" --timeout=300s
+    echo "Siglet restarted"
+    echo ""
+fi
 
 echo "======================================"
 echo "Siglet image ready in Kind cluster!"

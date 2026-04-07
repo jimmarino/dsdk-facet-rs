@@ -12,7 +12,7 @@
 
 use super::{TokenClient, TokenData};
 use crate::context::ParticipantContext;
-use crate::jwt::{JwtGenerator, LocalJwtGenerator, TokenClaims};
+use crate::jwt::{JwtGenerator, TokenClaims};
 use crate::token::TokenError;
 use crate::util::clock::{Clock, default_clock};
 use async_trait::async_trait;
@@ -33,7 +33,7 @@ pub struct OAuth2TokenClient {
     http_client: Client,
     #[builder(into)]
     identifier: String,
-    jwt_generator: Arc<LocalJwtGenerator>,
+    jwt_generator: Arc<dyn JwtGenerator>,
     #[builder(default = DEFAULT_EXPIRATION_SECONDS)]
     expiration_seconds: i64,
 }

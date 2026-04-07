@@ -18,6 +18,7 @@ use crate::jwt::{JwtGenerator, TokenClaims, VaultJwtGenerator};
 use crate::vault::VaultSigningClient;
 use base64::Engine;
 use chrono::Utc;
+use serde_json::json;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -221,18 +222,14 @@ async fn test_vault_jwt_generator_preserves_custom_claims() {
 
     let now = Utc::now().timestamp();
 
-    let mut custom = serde_json::Map::new();
-    custom.insert(
-        "scope".to_string(),
-        serde_json::Value::String("read:data write:data".to_string()),
-    );
-    custom.insert("role".to_string(), serde_json::Value::String("admin".to_string()));
-
     let claims = TokenClaims::builder()
         .sub("user-123")
         .aud("test-audience")
         .exp(now + 3600)
-        .custom(custom)
+        .custom(serde_json::Map::from_iter([
+            ("scope".to_string(), json!("read:data write:data")),
+            ("role".to_string(), json!("admin")),
+        ]))
         .build();
 
     let jwt = generator

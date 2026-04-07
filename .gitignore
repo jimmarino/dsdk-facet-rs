@@ -26,3 +26,5 @@ docs/
 *.log
 
 bin
+!src/bin
+!*/src/bin
