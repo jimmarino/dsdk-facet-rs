@@ -220,7 +220,11 @@ impl RotatingMockVaultSigningClient {
 impl VaultSigningClient for RotatingMockVaultSigningClient {
     async fn get_key_metadata(&self, _format: PublicKeyFormat) -> Result<KeyMetadata, VaultError> {
         let count = self.call_count.fetch_add(1, Ordering::SeqCst);
-        let keys = if count == 0 { &self.initial_keys } else { &self.rotated_keys };
+        let keys = if count == 0 {
+            &self.initial_keys
+        } else {
+            &self.rotated_keys
+        };
         let key_strings = keys
             .iter()
             .map(|k| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(k))
