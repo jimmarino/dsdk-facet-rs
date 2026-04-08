@@ -17,6 +17,7 @@ use async_trait::async_trait;
 use bon::Builder;
 use dsdk_facet_core::util::backoff::{BackoffConfig, calculate_backoff_interval};
 use dsdk_facet_core::util::clock::Clock;
+use dsdk_facet_core::util::task::TaskHandle;
 use dsdk_facet_core::vault::VaultError;
 use log::error;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -27,7 +28,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{RwLock, mpsc, watch};
-use tokio::task::JoinHandle;
 
 /// Trait for abstracting token renewal trigger mechanisms.
 ///
@@ -82,39 +82,6 @@ impl RenewalTriggerConfig {
     }
 }
 
-/// Handle for managing the token renewal task lifecycle.
-///
-/// Dropping this handle will signal the renewal task to stop and abort it.
-pub(crate) struct RenewalHandle {
-    shutdown_tx: watch::Sender<bool>,
-    task_handle: JoinHandle<()>,
-}
-
-impl RenewalHandle {
-    pub(crate) fn new(shutdown_tx: watch::Sender<bool>, task_handle: JoinHandle<()>) -> Self {
-        Self {
-            shutdown_tx,
-            task_handle,
-        }
-    }
-
-    /// Signals the renewal task to stop and aborts it.
-    #[allow(dead_code)]
-    pub(crate) fn shutdown(self) {
-        let _ = self.shutdown_tx.send(true);
-        self.task_handle.abort();
-    }
-}
-
-impl Drop for RenewalHandle {
-    fn drop(&mut self) {
-        // Signal the renewal task to stop
-        let _ = self.shutdown_tx.send(true);
-        // Abort the task as backup
-        self.task_handle.abort();
-    }
-}
-
 /// Manages automatic renewal of Vault tokens in a background task.
 ///
 /// **Note**: This struct is exposed for testing but should not be used directly in production.
@@ -137,13 +104,13 @@ impl TokenRenewer {
     /// Starts the renewal loop in a background task.
     ///
     /// Creates the renewal trigger from the configured trigger config and spawns the renewal loop.
-    pub(crate) fn start(self: Arc<Self>) -> Result<RenewalHandle, VaultError> {
+    pub(crate) fn start(self: Arc<Self>) -> Result<TaskHandle, VaultError> {
         // Create the trigger from config
         let trigger = self.renewal_trigger_config.clone().build()?;
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let task_handle = tokio::spawn(self.renewal_loop(shutdown_rx, trigger));
-        Ok(RenewalHandle::new(shutdown_tx, task_handle))
+        Ok(TaskHandle::new(shutdown_tx, task_handle))
     }
 
     /// Main renewal loop that periodically renews the Vault token.
@@ -267,11 +234,9 @@ impl TokenRenewer {
         state.last_error = None;
     }
 
-    /// Handles token expiration by obtaining a new JWT and creating a new Vault token.
+    /// Handles token expiration by re-authenticating and updating the state.
     async fn handle_token_expiration(&self) {
-        let result = self.auth_client.authenticate().await;
-
-        match result {
+        match self.auth_client.authenticate().await {
             Ok((new_token, new_lease_duration)) => {
                 let mut state = self.state.write().await;
                 state.token = new_token;

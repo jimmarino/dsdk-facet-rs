@@ -17,6 +17,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 
+pub use dsdk_facet_test_utils::wait_for_condition;
+
 // ============================================================================
 // VaultClientState Test Fixtures
 // ============================================================================
@@ -130,28 +132,4 @@ pub fn wrapped_test_state(
         lease_duration,
         consecutive_failures,
     )))
-}
-/// Poll state until a condition is met or timeout expires
-pub async fn wait_for_condition<F>(state: &Arc<RwLock<VaultClientState>>, condition: F, timeout: Duration) -> bool
-where
-    F: Fn(&VaultClientState) -> bool,
-{
-    let start = tokio::time::Instant::now();
-    let poll_interval = Duration::from_millis(10);
-
-    loop {
-        {
-            let guard = state.read().await;
-            if condition(&guard) {
-                return true;
-            }
-        }
-
-        if tokio::time::Instant::now().duration_since(start) >= timeout {
-            return false;
-        }
-
-        // Use sleep instead of yield_now to allow time to advance with paused time
-        tokio::time::sleep(poll_interval).await;
-    }
 }

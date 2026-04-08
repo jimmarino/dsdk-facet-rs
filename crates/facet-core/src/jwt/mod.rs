@@ -110,6 +110,9 @@ pub enum JwtVerificationError {
 
     #[error("Verification error: {0}")]
     VerificationFailed(String),
+
+    #[error("General error: {0}")]
+    GeneralError(String),
 }
 
 /// Signing algorithms supported by the JWT generator.

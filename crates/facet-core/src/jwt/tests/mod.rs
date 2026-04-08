@@ -14,6 +14,7 @@
 mod common;
 pub mod did;
 mod local;
+pub mod resolver;
 mod signing_key_record;
 mod vault_jwt_generator;
 mod vault_signing_key_resolver;

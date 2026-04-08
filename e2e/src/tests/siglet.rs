@@ -26,6 +26,7 @@ use dsdk_facet_core::jwt::jwtutils::StaticSigningKeyResolver;
 use dsdk_facet_core::jwt::{JwtGenerator, KeyFormat, LocalJwtGenerator, SigningAlgorithm, TokenClaims};
 use reqwest::Client;
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// Test that Siglet deploys successfully and responds to health checks
 #[tokio::test]
@@ -139,7 +140,7 @@ async fn test_pull_operations() -> Result<()> {
 
     // Use unique IDs per run so retries don't collide with flows left in Siglet state
     // from a prior attempt.
-    let run_id = uuid::Uuid::new_v4().to_string();
+    let run_id = Uuid::new_v4().to_string();
     let dataset_id = format!("dataset-{}", run_id);
     let agreement_id = format!("agreement-{}", run_id);
     let consumer_flow_id = format!("consumer-flow-{}", run_id);
@@ -163,7 +164,6 @@ async fn test_pull_operations() -> Result<()> {
     let prepare_response = client
         .post(format!("{}/api/v1/dataflows/prepare", signaling_url))
         .header("Content-Type", "application/json")
-        .header("X-Participant-Id", "test-participant-context")
         .json(&prepare_message)
         .send()
         .await
@@ -210,7 +210,6 @@ async fn test_pull_operations() -> Result<()> {
     let start_response = client
         .post(format!("{}/api/v1/dataflows/start", signaling_url))
         .header("Content-Type", "application/json")
-        .header("X-Participant-Id", "test-participant-context")
         .json(&start_message)
         .send()
         .await
@@ -322,12 +321,41 @@ async fn test_pull_operations() -> Result<()> {
         );
     }
 
-    // Step 4: Verify the access token.
+    // Step 4: Retrieve the token stored for the consumer flow via the token API.
+    let get_token_url = format!(
+        "http://localhost:{}/tokens/{}/{}",
+        deployment.siglet_api_port, "siglet-participant", consumer_flow_id
+    );
+    let get_token_response = client
+        .get(&get_token_url)
+        .send()
+        .await
+        .context("Failed to retrieve token from token API")?;
+
+    if !get_token_response.status().is_success() {
+        let status = get_token_response.status();
+        let body = get_token_response.text().await.unwrap_or_default();
+        anyhow::bail!("Token retrieval returned HTTP {}: {}", status, body);
+    }
+
+    let get_token_result: serde_json::Value = get_token_response
+        .json()
+        .await
+        .context("Failed to parse token retrieval response")?;
+
+    let api_token = get_token_result
+        .get("token")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .with_context(|| format!("Retrieved token should not be empty, got: {}", get_token_result))?
+        .to_string();
+
+    // Step 5: Verify the access token.
     let verify_url = format!("http://localhost:{}/tokens/verify", deployment.siglet_api_port);
     let verify_response = client
         .post(&verify_url)
         .header("Content-Type", "application/json")
-        .json(&serde_json::json!({ "token": token, "audience": "did:web:provider" }))
+        .json(&serde_json::json!({ "token": api_token, "audience": "did:web:provider" }))
         .send()
         .await
         .context("Token verification request failed")?;
@@ -349,7 +377,7 @@ async fn test_pull_operations() -> Result<()> {
         verify_result
     );
 
-    // Step 5: Consumer refreshes the access token via the dedicated Refresh API port.
+    // Step 6: Consumer refreshes the access token via the dedicated Refresh API port.
     // Port-forwarding for port 8082 is set up in the fixture, so we can call it
     // directly from the test using the reqwest client.
     let refresh_token_prop = properties_array
@@ -378,7 +406,7 @@ async fn test_pull_operations() -> Result<()> {
         .unwrap()
         .as_secs() as i64;
     let mut token_claim = serde_json::Map::new();
-    token_claim.insert("token".to_string(), serde_json::Value::String(token.to_string()));
+    token_claim.insert("token".to_string(), serde_json::Value::String(api_token.clone()));
     let claims = TokenClaims::builder()
         .iss("did:web:consumer")
         .sub("did:web:consumer")
@@ -439,11 +467,11 @@ async fn test_pull_operations() -> Result<()> {
 
     let new_access_token = refresh_result["access_token"].as_str().unwrap();
 
-    // Step 6: Old token should now be rejected (it was rotated out by the refresh).
+    // Step 7: Old token should now be rejected (it was rotated out by the refresh).
     let stale_verify_response = client
         .post(&verify_url)
         .header("Content-Type", "application/json")
-        .json(&serde_json::json!({ "token": token, "audience": "did:web:provider" }))
+        .json(&serde_json::json!({ "token": api_token, "audience": "did:web:provider" }))
         .send()
         .await
         .context("Stale token verification request failed")?;
@@ -453,7 +481,7 @@ async fn test_pull_operations() -> Result<()> {
         "Old access token should be rejected after refresh"
     );
 
-    // Step 7: New access token obtained from refresh should be valid.
+    // Step 8: New access token obtained from refresh should be valid.
     let new_verify_response = client
         .post(&verify_url)
         .header("Content-Type", "application/json")
@@ -467,7 +495,7 @@ async fn test_pull_operations() -> Result<()> {
         anyhow::bail!("New access token verification returned HTTP {}: {}", status, body);
     }
 
-    // Step 8: Provider terminates the transfer
+    // Step 9: Provider terminates the transfer
     let terminate_message = serde_json::json!({ "reason": "Test termination" });
 
     let terminate_response = client

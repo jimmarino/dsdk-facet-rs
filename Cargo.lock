@@ -1486,7 +1486,6 @@ dependencies = [
 [[package]]
 name = "dataplane-sdk"
 version = "0.1.0"
-source = "git+https://github.com/eclipse-dataplane-core/dataplane-sdk-rust?branch=main#756668089b7f5db16a4d31f870f00c76eeed9a73"
 dependencies = [
  "async-trait",
  "bon",
@@ -1499,7 +1498,6 @@ dependencies = [
 [[package]]
 name = "dataplane-sdk-axum"
 version = "0.1.0"
-source = "git+https://github.com/eclipse-dataplane-core/dataplane-sdk-rust?branch=main#756668089b7f5db16a4d31f870f00c76eeed9a73"
 dependencies = [
  "anyhow",
  "axum",
@@ -1664,6 +1662,7 @@ dependencies = [
  "bs58",
  "chrono",
  "dsdk-facet-postgres",
+ "dsdk-facet-test-utils",
  "dsdk-facet-testcontainers",
  "ed25519-dalek",
  "hex",
@@ -1715,6 +1714,7 @@ dependencies = [
  "bs58",
  "chrono",
  "dsdk-facet-core",
+ "dsdk-facet-test-utils",
  "dsdk-facet-testcontainers",
  "log",
  "notify",
@@ -1770,6 +1770,13 @@ dependencies = [
  "tokio",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "dsdk-facet-test-utils"
+version = "0.0.1"
+dependencies = [
+ "tokio",
 ]
 
 [[package]]
