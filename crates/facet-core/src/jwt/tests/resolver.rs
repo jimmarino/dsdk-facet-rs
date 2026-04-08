@@ -195,6 +195,68 @@ async fn initialize_loads_keys_on_startup() {
     assert_eq!(call_count.load(Ordering::SeqCst), 1);
 }
 
+/// Simulates a key rotation that occurs after the cache was last populated.
+/// The first call to `get_key_metadata` returns only v1; all subsequent calls
+/// return both v1 and v2, as if a rotation happened between calls.
+struct RotatingMockVaultSigningClient {
+    key_name: String,
+    initial_keys: Vec<Vec<u8>>,
+    rotated_keys: Vec<Vec<u8>>,
+    call_count: Arc<AtomicU32>,
+}
+
+impl RotatingMockVaultSigningClient {
+    fn new(key_name: &str, initial_keys: &[Vec<u8>], rotated_keys: &[Vec<u8>]) -> Self {
+        Self {
+            key_name: key_name.to_string(),
+            initial_keys: initial_keys.to_vec(),
+            rotated_keys: rotated_keys.to_vec(),
+            call_count: Arc::new(AtomicU32::new(0)),
+        }
+    }
+}
+
+#[async_trait]
+impl VaultSigningClient for RotatingMockVaultSigningClient {
+    async fn get_key_metadata(&self, _format: PublicKeyFormat) -> Result<KeyMetadata, VaultError> {
+        let count = self.call_count.fetch_add(1, Ordering::SeqCst);
+        let keys = if count == 0 { &self.initial_keys } else { &self.rotated_keys };
+        let key_strings = keys
+            .iter()
+            .map(|k| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(k))
+            .collect::<Vec<_>>();
+        Ok(KeyMetadata {
+            key_name: self.key_name.clone(),
+            current_version: key_strings.len(),
+            keys: key_strings,
+        })
+    }
+
+    async fn sign_content(&self, _content: &[u8]) -> Result<Vec<u8>, VaultError> {
+        Ok(vec![])
+    }
+}
+
+#[tokio::test]
+async fn resolve_key_refreshes_on_cache_miss_after_rotation() {
+    let key_v1 = test_key(0x01);
+    let key_v2 = test_key(0x02);
+    let client = Arc::new(RotatingMockVaultSigningClient::new(
+        "my-key",
+        &[key_v1.clone()],
+        &[key_v1, key_v2.clone()],
+    ));
+
+    // Initialize with only v1 in cache.
+    let resolver = Arc::new(VaultVerificationKeyResolver::builder().vault_client(client).build());
+    resolver.initialize().await.unwrap();
+
+    // Requesting v2 (not yet cached) should trigger an immediate refresh and succeed.
+    let material = resolver.resolve_key("iss", "my-key-2").await.unwrap();
+
+    assert_eq!(material.key, key_v2);
+}
+
 struct MockVaultSigningClient {
     call_count: Arc<AtomicU32>,
     key_name: String,

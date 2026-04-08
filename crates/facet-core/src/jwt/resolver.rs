@@ -21,8 +21,10 @@ use base64::Engine;
 use bon::Builder;
 use log::error;
 use std::collections::HashMap;
+use std::sync;
 use std::sync::Arc;
 use std::time::Duration;
+use sync::Mutex;
 use tokio::sync::watch;
 
 #[derive(Builder)]
@@ -129,19 +131,25 @@ pub struct SigningKeyRecord {
 }
 
 /// Inner state shared between the resolver and the background refresh task.
-/// Holds only the vault client and cached keys; all scheduling and resolution
-/// logic lives on `VaultVerificationKeyResolver`.
 struct VaultKeyResolverState {
     pub(super) vault_client: Arc<dyn VaultSigningClient>,
-    public_keys: std::sync::RwLock<HashMap<String, CachedPublicKey>>,
+    public_keys: sync::RwLock<HashMap<String, CachedPublicKey>>,
 }
 
 impl VaultKeyResolverState {
     fn new(vault_client: Arc<dyn VaultSigningClient>) -> Self {
         Self {
             vault_client,
-            public_keys: std::sync::RwLock::new(HashMap::new()),
+            public_keys: sync::RwLock::new(HashMap::new()),
         }
+    }
+
+    fn lookup(&self, kid: &str) -> Option<(Vec<u8>, KeyFormat)> {
+        self.public_keys
+            .read()
+            .ok()?
+            .get(kid)
+            .map(|k| (k.key.clone(), k.key_format))
     }
 
     async fn load_keys(&self) -> Result<(), JwtVerificationError> {
@@ -179,7 +187,7 @@ impl VaultKeyResolverState {
 pub struct VaultVerificationKeyResolver {
     state: Arc<VaultKeyResolverState>,
     refresh_interval: Duration,
-    refresh_handle: std::sync::Mutex<Option<TaskHandle>>,
+    refresh_handle: Mutex<Option<TaskHandle>>,
 }
 
 #[bon::bon]
@@ -192,7 +200,7 @@ impl VaultVerificationKeyResolver {
         Self {
             state: Arc::new(VaultKeyResolverState::new(vault_client)),
             refresh_interval,
-            refresh_handle: std::sync::Mutex::new(None),
+            refresh_handle: Mutex::new(None),
         }
     }
 
@@ -243,31 +251,32 @@ impl VaultVerificationKeyResolver {
 #[async_trait]
 impl VerificationKeyResolver for VaultVerificationKeyResolver {
     async fn resolve_key(&self, iss: &str, kid: &str) -> Result<KeyMaterial, JwtVerificationError> {
-        let metadata = self
-            .state
-            .vault_client
-            .get_key_metadata(PublicKeyFormat::Base64Url)
+        // 1. Check the cache first (populated by initialize() and the background refresh loop).
+        if let Some((key_bytes, key_format)) = self.state.lookup(kid) {
+            return Ok(KeyMaterial::builder()
+                .key(key_bytes)
+                .key_format(key_format)
+                .iss(iss)
+                .kid(kid)
+                .build());
+        }
+
+        // 2. Cache miss — the key may have been added by a recent rotation that the background
+        //    refresh hasn't picked up yet. Repopulate the cache and try again.
+        self.state
+            .load_keys()
             .await
-            .map_err(|e| JwtVerificationError::VerificationFailed(format!("Failed to get key metadata: {}", e)))?;
+            .map_err(|e| JwtVerificationError::VerificationFailed(e.to_string()))?;
 
-        // kid is formatted as "{key_name}-{version}" by VaultJwtGenerator
-        let version: usize = kid
-            .rsplit_once('-')
-            .and_then(|(_, v)| v.parse().ok())
-            .ok_or_else(|| JwtVerificationError::VerificationFailed(format!("Invalid kid format: {}", kid)))?;
-
-        let key_b64 = metadata
-            .keys
-            .get(version.saturating_sub(1))
-            .ok_or_else(|| JwtVerificationError::VerificationFailed(format!("Key version {} not found", version)))?;
-
-        let key_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .decode(key_b64)
-            .map_err(|e| JwtVerificationError::VerificationFailed(format!("Failed to decode public key: {}", e)))?;
+        // 3. Retry from the re-populated cache.
+        let (key_bytes, key_format) = self
+            .state
+            .lookup(kid)
+            .ok_or_else(|| JwtVerificationError::VerificationFailed(format!("Key '{}' not found", kid)))?;
 
         Ok(KeyMaterial::builder()
             .key(key_bytes)
-            .key_format(KeyFormat::DER)
+            .key_format(key_format)
             .iss(iss)
             .kid(kid)
             .build())
