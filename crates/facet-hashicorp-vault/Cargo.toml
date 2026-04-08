@@ -21,6 +21,7 @@ notify = "6.1"
 
 
 [dev-dependencies]
+dsdk-facet-test-utils = { path = "../facet-test-utils" }
 wiremock = { workspace = true }
 dsdk-facet-testcontainers = { path = "../facet-testcontainers" }
 tempfile = "3"
