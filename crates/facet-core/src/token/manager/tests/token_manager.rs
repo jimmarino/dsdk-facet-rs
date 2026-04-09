@@ -10,7 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use super::{JwtTokenManager, MemoryRenewableTokenStore, TokenManager};
+use super::{JwtTokenManager, MemoryRenewableTokenStore, TokenManager, ValidatedServerSecret};
 use crate::context::ParticipantContext;
 use crate::jwt::jwtutils::{StaticSigningKeyResolver, StaticVerificationKeyResolver, generate_ed25519_keypair_pem};
 use crate::jwt::{
@@ -762,10 +762,11 @@ fn create_jwt_token_manager(clock: Arc<dyn Clock>) -> TestFixture {
 
     let store = Arc::new(MemoryRenewableTokenStore::new());
 
+    let secret = ValidatedServerSecret::try_from(b"this_is_exactly_32bytes_long!!!!".to_vec()).unwrap();
     let manager = JwtTokenManager::builder()
         .issuer("did:web:issuer.com")
         .refresh_endpoint("http://localhost:8080/refresh")
-        .server_secret(b"this_is_exactly_32bytes_long!!!!".to_vec())
+        .server_secret(secret)
         .token_duration(3600) // 1 hour
         .renewal_token_duration(86400) // 24 hours
         .clock(clock)

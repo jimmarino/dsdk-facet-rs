@@ -26,7 +26,7 @@ use dsdk_facet_core::jwt::jwtutils::{
 };
 use dsdk_facet_core::jwt::{JwkSet, JwkSetProvider, KeyFormat, LocalJwtGenerator, LocalJwtVerifier, SigningAlgorithm};
 use dsdk_facet_core::token::client::{MemoryTokenStore, TokenStore};
-use dsdk_facet_core::token::manager::{JwtTokenManager, MemoryRenewableTokenStore};
+use dsdk_facet_core::token::manager::{JwtTokenManager, MemoryRenewableTokenStore, ValidatedServerSecret};
 use dsdk_facet_core::util::clock::{Clock, MockClock};
 use serde_json::Value;
 use siglet::config::{EndpointMapping, TokenSource, TransferType};
@@ -692,11 +692,12 @@ fn create_jwt_token_manager() -> Arc<JwtTokenManager> {
 
     let token_store = Arc::new(MemoryRenewableTokenStore::new());
 
+    let secret = ValidatedServerSecret::try_from(b"this_is_exactly_32bytes_long!!!!".to_vec()).unwrap();
     Arc::new(
         JwtTokenManager::builder()
             .issuer("did:web:issuer.com")
             .refresh_endpoint("http://localhost:8080/refresh")
-            .server_secret(b"this_is_exactly_32bytes_long!!!!".to_vec())
+            .server_secret(secret)
             .token_duration(3600) // 1 hour
             .renewal_token_duration(86400) // 24 hours
             .clock(clock)
