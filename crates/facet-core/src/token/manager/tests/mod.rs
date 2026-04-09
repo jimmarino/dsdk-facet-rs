@@ -23,6 +23,7 @@ use crate::token::manager::MemoryRenewableTokenStore;
 use crate::util::clock::{Clock, MockClock};
 use async_trait::async_trait;
 use chrono::DateTime;
+use serde_json::Value;
 use std::sync::Arc;
 
 // Mock JWT generator for testing
@@ -261,7 +262,7 @@ async fn test_reserved_claim_iss_rejected() {
     let pc = ParticipantContext::builder().id("test_participant").build();
 
     let mut claims = HashMap::new();
-    claims.insert("iss".to_string(), "custom_issuer".to_string());
+    claims.insert("iss".to_string(), Value::String("custom_issuer".to_string()));
 
     let result = manager
         .generate_pair(&pc, "test_subject", claims, "test_flow".to_string())
@@ -289,7 +290,7 @@ async fn test_reserved_claim_sub_rejected() {
     let pc = ParticipantContext::builder().id("test_participant").build();
 
     let mut claims = HashMap::new();
-    claims.insert("sub".to_string(), "custom_subject".to_string());
+    claims.insert("sub".to_string(), Value::String("custom_subject".to_string()));
 
     let result = manager
         .generate_pair(&pc, "test_subject", claims, "test_flow".to_string())
@@ -313,7 +314,7 @@ async fn test_reserved_claim_jti_rejected() {
     let pc = ParticipantContext::builder().id("test_participant").build();
 
     let mut claims = HashMap::new();
-    claims.insert("jti".to_string(), "custom_jti".to_string());
+    claims.insert("jti".to_string(), Value::String("custom_jti".to_string()));
 
     let result = manager
         .generate_pair(&pc, "test_subject", claims, "test_flow".to_string())
@@ -338,7 +339,7 @@ async fn test_reserved_claims_exp_iat_nbf_rejected() {
 
     // Test exp
     let mut claims = HashMap::new();
-    claims.insert("exp".to_string(), "123456789".to_string());
+    claims.insert("exp".to_string(), Value::String("123456789".to_string()));
     let result = manager
         .generate_pair(&pc, "test_subject", claims, "test_flow".to_string())
         .await;
@@ -346,7 +347,7 @@ async fn test_reserved_claims_exp_iat_nbf_rejected() {
 
     // Test iat
     let mut claims = HashMap::new();
-    claims.insert("iat".to_string(), "123456789".to_string());
+    claims.insert("iat".to_string(), Value::String("123456789".to_string()));
     let result = manager
         .generate_pair(&pc, "test_subject", claims, "test_flow".to_string())
         .await;
@@ -354,7 +355,7 @@ async fn test_reserved_claims_exp_iat_nbf_rejected() {
 
     // Test nbf
     let mut claims = HashMap::new();
-    claims.insert("nbf".to_string(), "123456789".to_string());
+    claims.insert("nbf".to_string(), Value::String("123456789".to_string()));
     let result = manager
         .generate_pair(&pc, "test_subject", claims, "test_flow".to_string())
         .await;
@@ -370,9 +371,9 @@ async fn test_non_reserved_custom_claims_accepted() {
     let pc = ParticipantContext::builder().id("test_participant").build();
 
     let mut claims = HashMap::new();
-    claims.insert("custom_field1".to_string(), "value1".to_string());
-    claims.insert("custom_field2".to_string(), "value2".to_string());
-    claims.insert("role".to_string(), "admin".to_string());
+    claims.insert("custom_field1".to_string(), Value::String("value1".to_string()));
+    claims.insert("custom_field2".to_string(), Value::String("value2".to_string()));
+    claims.insert("role".to_string(), Value::String("admin".to_string()));
 
     let result = manager
         .generate_pair(&pc, "test_subject", claims, "test_flow".to_string())

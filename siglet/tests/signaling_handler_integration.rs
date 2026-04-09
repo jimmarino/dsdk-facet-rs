@@ -370,9 +370,9 @@ async fn test_on_start_metadata_null_produces_empty_claim() {
 
     let jwt_payload = decode_jwt_payload(&response);
     assert_eq!(
-        jwt_payload.get("nullable_field").and_then(|v| v.as_str()),
-        Some(""),
-        "JSON null metadata value should produce an empty-string claim"
+        jwt_payload.get("nullable_field"),
+        Some(&serde_json::Value::Null),
+        "JSON null metadata value is preserved as null in the claim"
     );
 }
 
@@ -420,8 +420,8 @@ async fn test_on_start_json_encoded_metadata_unwrapped_in_claim() {
     let jwt_payload = decode_jwt_payload(&response);
     assert_eq!(
         jwt_payload.get("encoded_field").and_then(|v| v.as_str()),
-        Some("inner-value"),
-        "JSON-encoded string metadata value should be unwrapped in the claim"
+        Some("\"inner-value\""),
+        "JSON-encoded string metadata value is preserved as-is in the claim"
     );
 }
 

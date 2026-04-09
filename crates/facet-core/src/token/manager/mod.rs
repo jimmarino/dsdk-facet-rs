@@ -30,7 +30,7 @@ use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
 use jwt::JwtGenerator;
 use rand::RngCore;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sha2::Sha256;
 use uuid::Uuid;
 
@@ -99,7 +99,7 @@ pub trait TokenManager: Send + Sync {
         &self,
         participant_context: &ParticipantContext,
         subject: &str,
-        claims: HashMap<String, String>,
+        claims: HashMap<String, Value>,
         flow_id: String,
     ) -> Result<RenewableTokenPair, TokenError>;
 
@@ -172,7 +172,7 @@ pub struct RenewableTokenEntry {
     pub expires_at: DateTime<Utc>,
     #[builder(into)]
     pub subject: String, // the counter-party that the token is issued to
-    pub claims: HashMap<String, String>,
+    pub claims: HashMap<String, Value>,
     #[builder(into)]
     pub participant_context_id: String, // the participant context that the token is valid for
     #[builder(into)]
@@ -248,7 +248,7 @@ impl JwtTokenManager {
     }
 
     /// Validates that custom claims don't contain reserved JWT claim names
-    fn validate_custom_claims(claims: &HashMap<String, String>) -> Result<(), TokenError> {
+    fn validate_custom_claims(claims: &HashMap<String, Value>) -> Result<(), TokenError> {
         for reserved in RESERVED_CLAIMS {
             if claims.contains_key(*reserved) {
                 return Err(TokenError::general_error(format!(
@@ -277,11 +277,8 @@ impl JwtTokenManager {
         Ok(hex::encode(mac.finalize().into_bytes()))
     }
 
-    fn create_claims(&self, aud: &str, jti: &str, subject: &str, claims: &HashMap<String, String>) -> TokenClaims {
-        let mut custom = serde_json::Map::new();
-        for (k, v) in claims.iter() {
-            custom.insert(k.clone(), Value::String(v.to_string()));
-        }
+    fn create_claims(&self, aud: &str, jti: &str, subject: &str, claims: &HashMap<String, Value>) -> TokenClaims {
+        let mut custom: Map<String, Value> = claims.clone().into_iter().collect();
         custom.insert("jti".to_string(), Value::String(jti.to_string()));
 
         TokenClaims::builder()
@@ -308,7 +305,7 @@ impl TokenManager for JwtTokenManager {
         &self,
         participant_context: &ParticipantContext,
         subject: &str,
-        claims: HashMap<String, String>,
+        claims: HashMap<String, Value>,
         flow_id: String,
     ) -> Result<RenewableTokenPair, TokenError> {
         // Validate custom claims don't override reserved JWT claims
