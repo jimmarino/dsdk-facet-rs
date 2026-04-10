@@ -290,7 +290,7 @@ impl JwtTokenManager {
             .build()
     }
 
-    fn expiration(&self) -> Result<DateTime<Utc>, TokenError> {
+    fn renewal_expiration(&self) -> Result<DateTime<Utc>, TokenError> {
         let expires_at = DateTime::from_timestamp(self.clock.now().timestamp() + self.renewal_token_duration, 0)
             .ok_or_else(|| {
                 TokenError::general_error("Failed to calculate token expiration time - timestamp is out of valid range")
@@ -321,7 +321,7 @@ impl TokenManager for JwtTokenManager {
 
         let (refresh_token, hashed_refresh_token) = self.create_renewal_token()?;
 
-        let expires_at = self.expiration()?;
+        let expires_at = self.renewal_expiration()?;
 
         // Create and save the renewable token entry
         let entry = RenewableTokenEntry::builder()
@@ -367,7 +367,7 @@ impl TokenManager for JwtTokenManager {
             return Err(TokenError::NotAuthorized("Invalid token".to_string()));
         }
 
-        let new_expires_at = self.expiration()?;
+        let new_expires_at = self.renewal_expiration()?;
 
         let (new_refresh_token, new_hashed) = self.create_renewal_token()?;
 
