@@ -140,7 +140,6 @@ impl DidWebVerificationKeyResolver {
     /// Converts a verification method to key material.
     pub(crate) fn verification_method_to_key_material(
         vm: &VerificationMethod,
-        iss: &str,
         kid: &str,
     ) -> Result<KeyMaterial, JwtVerificationError> {
         // Try publicKeyMultibase first (preferred for Ed25519)
@@ -155,7 +154,6 @@ impl DidWebVerificationKeyResolver {
             return Ok(KeyMaterial::builder()
                 .key(key_bytes)
                 .key_format(KeyFormat::DER)
-                .iss(iss)
                 .kid(kid)
                 .build());
         }
@@ -176,8 +174,8 @@ impl DidWebVerificationKeyResolver {
 #[async_trait]
 impl VerificationKeyResolver for DidWebVerificationKeyResolver {
     async fn resolve_key(&self, iss: &str, kid: &str) -> Result<KeyMaterial, JwtVerificationError> {
-        // The iss should be a DID (possibly with fragment)
-        // The kid might be a full DID URL or just a fragment
+        // iss is the JWT issuer (DID of the signer); kid may be a full DID URL or fragment.
+        // We construct the full DID URL from iss + kid to locate the verification method.
         let did_url = if kid.starts_with("did:") {
             kid.to_string()
         } else if kid.starts_with('#') {
@@ -206,6 +204,6 @@ impl VerificationKeyResolver for DidWebVerificationKeyResolver {
         let vm = Self::find_verification_method(&doc, &fragment)?;
 
         // Convert to KeyMaterial
-        Self::verification_method_to_key_material(vm, iss, kid)
+        Self::verification_method_to_key_material(vm, kid)
     }
 }

@@ -661,7 +661,6 @@ fn create_jwt_token_manager() -> Arc<JwtTokenManager> {
     let signing_resolver = Arc::new(
         StaticSigningKeyResolver::builder()
             .key(keypair.private_key.clone())
-            .iss("did:web:issuer.com")
             .kid("test_kid_1")
             .key_format(KeyFormat::PEM)
             .build(),

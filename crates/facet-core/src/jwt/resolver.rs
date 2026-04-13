@@ -38,11 +38,10 @@ pub struct StaticVerificationKeyResolver {
 
 #[async_trait]
 impl VerificationKeyResolver for StaticVerificationKeyResolver {
-    async fn resolve_key(&self, iss: &str, kid: &str) -> Result<KeyMaterial, JwtVerificationError> {
+    async fn resolve_key(&self, _iss: &str, kid: &str) -> Result<KeyMaterial, JwtVerificationError> {
         Ok(KeyMaterial::builder()
             .key(self.key.clone())
             .key_format(self.key_format)
-            .iss(iss)
             .kid(kid)
             .build())
     }
@@ -51,9 +50,6 @@ impl VerificationKeyResolver for StaticVerificationKeyResolver {
 #[derive(Builder)]
 pub struct StaticSigningKeyResolver {
     pub key: Vec<u8>,
-
-    #[builder(into)]
-    pub iss: String,
 
     #[builder(into)]
     pub kid: String,
@@ -68,7 +64,6 @@ impl SigningKeyResolver for StaticSigningKeyResolver {
         Ok(KeyMaterial::builder()
             .key_format(self.key_format)
             .key(self.key.clone())
-            .iss(self.iss.clone())
             .kid(self.kid.clone())
             .build())
     }
@@ -108,7 +103,6 @@ impl SigningKeyResolver for VaultSigningKeyResolver {
         Ok(KeyMaterial::builder()
             .key_format(record.key_format)
             .key(record.private_key.into_bytes())
-            .iss(participant_context.identifier.clone())
             .kid(record.kid)
             .build())
     }
@@ -264,13 +258,12 @@ impl VaultVerificationKeyResolver {
 
 #[async_trait]
 impl VerificationKeyResolver for VaultVerificationKeyResolver {
-    async fn resolve_key(&self, iss: &str, kid: &str) -> Result<KeyMaterial, JwtVerificationError> {
+    async fn resolve_key(&self, _iss: &str, kid: &str) -> Result<KeyMaterial, JwtVerificationError> {
         // 1. Check the cache first (populated by initialize() and the background refresh loop).
         if let Some((key_bytes, key_format)) = self.state.lookup(kid) {
             return Ok(KeyMaterial::builder()
                 .key(key_bytes)
                 .key_format(key_format)
-                .iss(iss)
                 .kid(kid)
                 .build());
         }
@@ -291,7 +284,6 @@ impl VerificationKeyResolver for VaultVerificationKeyResolver {
         Ok(KeyMaterial::builder()
             .key(key_bytes)
             .key_format(key_format)
-            .iss(iss)
             .kid(kid)
             .build())
     }

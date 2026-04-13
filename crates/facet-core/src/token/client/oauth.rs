@@ -31,8 +31,6 @@ pub struct OAuth2TokenClient {
     clock: Arc<dyn Clock>,
     #[builder(default = Client::new())]
     http_client: Client,
-    #[builder(into)]
-    identifier: String,
     jwt_generator: Arc<dyn JwtGenerator>,
     #[builder(default = DEFAULT_EXPIRATION_SECONDS)]
     expiration_seconds: i64,
@@ -60,8 +58,8 @@ impl TokenClient for OAuth2TokenClient {
         custom_claims.insert("token".to_string(), Value::String(access_token.to_string()));
 
         let claims = TokenClaims::builder()
-            .iss(&self.identifier)
-            .sub(&self.identifier)
+            .iss(&participant_context.identifier)
+            .sub(&participant_context.identifier)
             .aud(endpoint_identifier)
             .exp(now + self.expiration_seconds)
             .custom(custom_claims)

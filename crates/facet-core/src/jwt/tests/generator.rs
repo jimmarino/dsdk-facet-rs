@@ -37,7 +37,6 @@ async fn test_token_generation_validation(#[case] key_format: KeyFormat) {
 
     let generator = create_test_generator(
         keypair.private_key,
-        "user-id-123",
         "did:web:example.com#key-1",
         key_format.clone(),
         SigningAlgorithm::EdDSA,
@@ -86,7 +85,6 @@ async fn test_rsa_token_generation_validation_pem() {
 
     let generator = create_test_generator(
         keypair.private_key,
-        "issuer-rsa",
         "did:web:example.com#key-1",
         KeyFormat::PEM,
         SigningAlgorithm::RS256,
@@ -95,6 +93,7 @@ async fn test_rsa_token_generation_validation_pem() {
     let now = Utc::now().timestamp();
     let claims = TokenClaims::builder()
         .sub("user-id-456")
+        .iss("issuer-rsa")
         .aud("audience1")
         .exp(now + 10000)
         .custom(serde_json::Map::from_iter([("scope".to_string(), json!("read:data"))]))
@@ -128,7 +127,6 @@ async fn test_generator_sets_iat_automatically_pem_eddsa() {
 
     let generator = create_test_generator(
         keypair.private_key,
-        "user-id-123",
         "did:web:example.com#key-1",
         KeyFormat::PEM,
         SigningAlgorithm::EdDSA,
@@ -185,7 +183,6 @@ async fn test_kid_and_iss_are_set_correctly_in_generated_token() {
 
     let generator = create_test_generator(
         keypair.private_key,
-        expected_iss,
         expected_kid,
         KeyFormat::PEM,
         SigningAlgorithm::EdDSA,
@@ -194,7 +191,7 @@ async fn test_kid_and_iss_are_set_correctly_in_generated_token() {
     let now = Utc::now().timestamp();
     let claims = TokenClaims::builder()
         .sub("user-id-123")
-        .iss("user-id-123") // Generator will overwrite this from the resolver
+        .iss(expected_iss) // Caller sets iss; generator no longer overrides it
         .aud("audience1")
         .exp(now + 10000)
         .build();

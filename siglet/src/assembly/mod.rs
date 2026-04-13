@@ -255,7 +255,6 @@ pub fn assemble_token_api(
             .jwt_generator(generator)
             .http_client(http_client)
             .expiration_seconds(3600)
-            .identifier(cfg.token_issuer.as_deref().unwrap_or(DEFAULT_TOKEN_ISSUER).to_string())
             .build(),
     );
     let client_api = Arc::new(

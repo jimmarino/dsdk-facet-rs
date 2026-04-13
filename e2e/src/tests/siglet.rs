@@ -506,7 +506,6 @@ async fn do_refresh(
         StaticSigningKeyResolver::builder()
             .key(private_key_der.to_vec())
             .key_format(KeyFormat::DER)
-            .iss("did:web:consumer")
             .kid("did:web:consumer#key-1")
             .build(),
     );

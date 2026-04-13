@@ -58,7 +58,6 @@ impl JwtGenerator for LocalJwtGenerator {
         let encoding_key = self.load_encoding_key(&key_result.key_format, &key_result.key)?;
         let mut header = Header::new(algorithm);
         header.kid = Some(key_result.kid);
-        claims.iss = key_result.iss;
         claims.iat = self.clock.now().timestamp();
         encode(&header, &claims, &encoding_key)
             .map_err(|e| JwtGenerationError::GenerationError(format!("JWT encoding failed: {}", e)))

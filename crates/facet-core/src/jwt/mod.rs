@@ -152,9 +152,6 @@ pub struct KeyMaterial {
     pub key: Vec<u8>,
 
     #[builder(into)]
-    pub iss: String,
-
-    #[builder(into)]
     pub kid: String,
 }
 

@@ -61,7 +61,6 @@ async fn test_token_renewal() {
             .signing_key_resolver(Arc::new(
                 StaticSigningKeyResolver::builder()
                     .key(provider_keypair.private_key.clone())
-                    .iss(PROVIDER_DID)
                     .kid("provider-key-1")
                     .key_format(KeyFormat::PEM)
                     .build(),
@@ -106,13 +105,11 @@ async fn test_token_renewal() {
 
     // Consumer-side generator: signs the client auth JWT presented to the renewal endpoint
     let oauth_client = OAuth2TokenClient::builder()
-        .identifier(CONSUMER_DID)
         .jwt_generator(Arc::new(
             LocalJwtGenerator::builder()
                 .signing_key_resolver(Arc::new(
                     StaticSigningKeyResolver::builder()
                         .key(consumer_keypair.private_key.clone())
-                        .iss(CONSUMER_DID)
                         .kid("consumer-key-1")
                         .key_format(KeyFormat::PEM)
                         .build(),
@@ -137,7 +134,10 @@ async fn test_token_renewal() {
     let refresh_endpoint = format!("http://127.0.0.1:{}/token/refresh", port);
 
     // endpoint_identifier becomes aud in the client auth JWT — must equal participant_context.audience
-    let consumer_ctx = ParticipantContext::builder().id("ctx-consumer").build();
+    let consumer_ctx = ParticipantContext::builder()
+        .id("ctx-consumer")
+        .identifier(CONSUMER_DID)
+        .build();
     let result = oauth_client
         .refresh_token(
             &consumer_ctx,

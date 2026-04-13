@@ -54,13 +54,12 @@ async fn resolve_key_returns_correct_key_bytes_for_version_2() {
 }
 
 #[tokio::test]
-async fn resolve_key_propagates_iss_and_kid() {
+async fn resolve_key_propagates_kid() {
     let client = Arc::new(MockVaultSigningClient::new("my-key", &[test_key(1)]));
     let resolver = make_resolver(client);
 
     let material = resolver.resolve_key("https://example.com", "my-key-1").await.unwrap();
 
-    assert_eq!(material.iss, "https://example.com");
     assert_eq!(material.kid, "my-key-1");
 }
 
@@ -451,6 +450,7 @@ async fn test_vault_signing_key_resolver_successful_resolution() {
     let now = Utc::now().timestamp();
     let claims = TokenClaims::builder()
         .sub("user-123")
+        .iss("did:web:example.com")
         .aud("test-audience")
         .exp(now + 10000)
         .build();

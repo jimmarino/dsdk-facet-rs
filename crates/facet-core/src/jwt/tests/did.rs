@@ -228,11 +228,10 @@ fn test_verification_method_to_key_material_multibase() {
     .unwrap();
 
     let result =
-        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "did:web:example.com", "key-1");
+        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "key-1");
 
     assert!(result.is_ok());
     let key_material = result.unwrap();
-    assert_eq!(key_material.iss, "did:web:example.com");
     assert_eq!(key_material.kid, "key-1");
     // Raw 32-byte Ed25519 public key (jsonwebtoken v10 DecodingKey::from_ed_der expects raw bytes)
     assert_eq!(key_material.key.len(), 32);
@@ -249,7 +248,7 @@ fn test_verification_method_to_key_material_invalid_multibase() {
     .unwrap();
 
     let result =
-        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "did:web:example.com", "key-1");
+        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "key-1");
 
     assert!(result.is_err());
 }
@@ -269,7 +268,7 @@ fn test_verification_method_to_key_material_jwk_unsupported() {
     .unwrap();
 
     let result =
-        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "did:web:example.com", "key-1");
+        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "key-1");
 
     assert!(result.is_err());
     match result.unwrap_err() {
@@ -290,7 +289,7 @@ fn test_verification_method_to_key_material_no_key() {
     .unwrap();
 
     let result =
-        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "did:web:example.com", "key-1");
+        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "key-1");
 
     assert!(result.is_err());
     match result.unwrap_err() {
@@ -320,8 +319,6 @@ async fn test_resolve_key_full_did_url() {
     let result = resolver.resolve_key(&did, &key_id).await;
 
     assert!(result.is_ok());
-    let key_material = result.unwrap();
-    assert_eq!(key_material.iss, did);
 }
 
 #[tokio::test]
@@ -481,7 +478,6 @@ async fn test_did_web_sign_verify_roundtrip_via_multibase() {
         StaticSigningKeyResolver::builder()
             .key(keypair.private_key)
             .key_format(KeyFormat::DER)
-            .iss("did:web:consumer")
             .kid("did:web:consumer#key-1")
             .build(),
     );
@@ -516,7 +512,6 @@ async fn test_did_web_sign_verify_roundtrip_via_multibase() {
 
     let key_material = DidWebVerificationKeyResolver::verification_method_to_key_material(
         &vm,
-        "did:web:consumer",
         "did:web:consumer#key-1",
     )
     .expect("key material extraction");

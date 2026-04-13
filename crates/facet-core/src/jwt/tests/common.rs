@@ -20,7 +20,6 @@ use std::sync::Arc;
 /// Helper function to create a JWT generator for testing
 pub fn create_test_generator(
     private_key: Vec<u8>,
-    iss: &str,
     kid: &str,
     key_format: KeyFormat,
     signing_algorithm: SigningAlgorithm,
@@ -28,7 +27,6 @@ pub fn create_test_generator(
     let signing_resolver = Arc::new(
         StaticSigningKeyResolver::builder()
             .key(private_key)
-            .iss(iss)
             .kid(kid)
             .key_format(key_format)
             .build(),

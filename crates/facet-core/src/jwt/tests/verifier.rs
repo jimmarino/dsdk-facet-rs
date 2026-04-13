@@ -25,7 +25,6 @@ async fn test_expired_token_validation_pem_eddsa() {
 
     let generator = create_test_generator(
         keypair.private_key,
-        "user-id-123",
         "did:web:example.com#key-1",
         KeyFormat::PEM,
         SigningAlgorithm::EdDSA,
@@ -62,7 +61,6 @@ async fn test_leeway_allows_recently_expired_token_pem_eddsa() {
 
     let generator = create_test_generator(
         keypair.private_key,
-        "issuer-leeway",
         "did:web:example.com#key-1",
         KeyFormat::PEM,
         SigningAlgorithm::EdDSA,
@@ -71,6 +69,7 @@ async fn test_leeway_allows_recently_expired_token_pem_eddsa() {
     let now = Utc::now().timestamp();
     let claims = TokenClaims::builder()
         .sub("user-id-789")
+        .iss("issuer-leeway")
         .aud("audience1")
         .exp(now - 20) // Expired 20 seconds ago
         .build();
@@ -102,7 +101,6 @@ async fn test_leeway_rejects_token_expired_beyond_leeway_pem_eddsa() {
 
     let generator = create_test_generator(
         keypair.private_key,
-        "user-id-123",
         "did:web:example.com#key-1",
         KeyFormat::PEM,
         SigningAlgorithm::EdDSA,
@@ -141,7 +139,6 @@ async fn test_invalid_signature_pem_eddsa() {
 
     let generator = create_test_generator(
         keypair1.private_key,
-        "user-id-123",
         "did:web:example.com#key-1",
         KeyFormat::PEM,
         SigningAlgorithm::EdDSA,
@@ -213,7 +210,6 @@ async fn test_mismatched_key_format_pem_eddsa() {
     let keypair_pem = generate_ed25519_keypair_pem().expect("Failed to generate PEM keypair");
     let generator = create_test_generator(
         keypair_pem.private_key,
-        "user-id-123",
         "did:web:example.com#key-1",
         KeyFormat::PEM,
         SigningAlgorithm::EdDSA,
@@ -246,7 +242,6 @@ async fn test_audience_mismatch_pem_eddsa() {
 
     let generator = create_test_generator(
         keypair.private_key,
-        "user-id-123",
         "did:web:example.com#key-1",
         KeyFormat::PEM,
         SigningAlgorithm::EdDSA,
@@ -287,7 +282,6 @@ async fn test_algorithm_mismatch_pem() {
 
     let generator = create_test_generator(
         keypair_eddsa.private_key,
-        "user-id-123",
         "did:web:example.com#key-1",
         KeyFormat::PEM,
         SigningAlgorithm::EdDSA,
@@ -324,7 +318,6 @@ async fn test_not_before_validation_pem_eddsa() {
 
     let generator = create_test_generator(
         keypair.private_key,
-        "user-id-123",
         "did:web:example.com#key-1",
         KeyFormat::PEM,
         SigningAlgorithm::EdDSA,
@@ -362,7 +355,6 @@ async fn test_not_before_with_leeway_pem_eddsa() {
 
     let generator = create_test_generator(
         keypair.private_key,
-        "user-id-123",
         "did:web:example.com#key-1",
         KeyFormat::PEM,
         SigningAlgorithm::EdDSA,
@@ -404,7 +396,6 @@ async fn test_not_before_beyond_leeway_pem_eddsa() {
 
     let generator = create_test_generator(
         keypair.private_key,
-        "user-id-123",
         "did:web:example.com#key-1",
         KeyFormat::PEM,
         SigningAlgorithm::EdDSA,

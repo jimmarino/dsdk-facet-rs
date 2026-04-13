@@ -55,7 +55,6 @@ async fn test_api_end_to_end_with_refresh() {
     let signing_key_resolver = Arc::new(
         StaticSigningKeyResolver::builder()
             .key(private_key)
-            .iss(DID)
             .kid("#key-1")
             .build(),
     );
@@ -64,7 +63,6 @@ async fn test_api_end_to_end_with_refresh() {
         .build();
     let token_client = Arc::new(
         OAuth2TokenClient::builder()
-            .identifier(DID)
             .jwt_generator(Arc::new(generator))
             .build(),
     );
@@ -114,6 +112,7 @@ async fn test_api_end_to_end_with_refresh() {
 
     let pc1 = ParticipantContext::builder()
         .id("participant1")
+        .identifier(DID)
         .audience("audience1")
         .build();
 

@@ -16,6 +16,7 @@ use crate::jwt::jwtutils::StaticSigningKeyResolver;
 use crate::jwt::jwtutils::generate_ed25519_keypair_pem;
 use crate::token::client::TokenClient;
 use crate::token::client::oauth::OAuth2TokenClient;
+use base64::Engine;
 use std::sync::Arc;
 use wiremock::matchers::{body_string_contains, header_regex, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -30,7 +31,6 @@ async fn test_refresh_token_success() {
     let signing_resolver = Arc::new(
         StaticSigningKeyResolver::builder()
             .key(private_key.clone())
-            .iss("did:web:example.com")
             .kid("did:web:example.com#key-1")
             .build(),
     );
@@ -42,7 +42,6 @@ async fn test_refresh_token_success() {
     );
 
     let client = OAuth2TokenClient::builder()
-        .identifier("test-client".to_string())
         .jwt_generator(jwt_generator)
         .build();
 
@@ -83,4 +82,66 @@ async fn test_refresh_token_success() {
     assert_eq!(token_data.refresh_endpoint, refresh_endpoint);
     // endpoint is not populated by OAuth refresh — it is preserved from the original save
     assert_eq!(token_data.endpoint, "");
+}
+
+/// Verifies that the proof JWT's `sub` claim is derived from `participant_context.identifier`
+#[tokio::test]
+async fn test_proof_jwt_sub_is_participant_context_identifier() {
+    let mock_server = MockServer::start().await;
+
+    let keypair = generate_ed25519_keypair_pem().expect("Failed to generate keypair");
+
+    let jwt_generator = Arc::new(
+        LocalJwtGenerator::builder()
+            .signing_key_resolver(Arc::new(
+                StaticSigningKeyResolver::builder()
+                    .key(keypair.private_key.clone())
+                    .kid("consumer-key-1")
+                    .build(),
+            ))
+            .build(),
+    );
+
+    let client = OAuth2TokenClient::builder()
+        .jwt_generator(jwt_generator)
+        .build();
+
+    Mock::given(method("POST"))
+        .and(path("/token/refresh"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "access_token": "new_token",
+            "refresh_token": "new_refresh",
+            "expires_in": 3600
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let pc = ParticipantContext::builder()
+        .id("pc-id")
+        .identifier("did:web:consumer.example.com")
+        .build();
+
+    let refresh_endpoint = format!("{}/token/refresh", mock_server.uri());
+    client
+        .refresh_token(
+            &pc,
+            "did:web:provider.example.com",
+            "old_token",
+            "old_refresh",
+            &refresh_endpoint,
+        )
+        .await
+        .unwrap();
+
+    // Decode the proof JWT from the captured Authorization header and check sub
+    let received = mock_server.received_requests().await.unwrap();
+    let auth = received[0].headers["authorization"].to_str().unwrap();
+    let token = auth.strip_prefix("Bearer ").unwrap();
+    let payload_b64 = token.split('.').nth(1).unwrap();
+    let payload_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload_b64)
+        .unwrap();
+    let claims: serde_json::Value = serde_json::from_slice(&payload_bytes).unwrap();
+
+    assert_eq!(claims["sub"], "did:web:consumer.example.com");
 }
