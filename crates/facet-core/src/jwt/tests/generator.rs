@@ -10,11 +10,9 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-//! Tests for LocalJwtGenerator and VaultJwtGenerator
-
 use super::common::*;
 use crate::context::ParticipantContext;
-use crate::jwt::jwtutils::{generate_ed25519_keypair_der, generate_ed25519_keypair_pem, generate_rsa_keypair_pem};
+use crate::jwt::test_fixtures::{generate_ed25519_keypair_der, generate_ed25519_keypair_pem, generate_rsa_keypair_pem};
 use crate::jwt::{JwtGenerator, JwtVerifier, KeyFormat, SigningAlgorithm, TokenClaims, VaultJwtGenerator};
 use crate::vault::VaultSigningClient;
 use base64::Engine;
@@ -22,8 +20,6 @@ use chrono::Utc;
 use rstest::rstest;
 use serde_json::json;
 use std::sync::Arc;
-
-// ===== LocalJwtGenerator =====
 
 #[rstest]
 #[case(KeyFormat::PEM)]
@@ -38,7 +34,7 @@ async fn test_token_generation_validation(#[case] key_format: KeyFormat) {
     let generator = create_test_generator(
         keypair.private_key,
         "did:web:example.com#key-1",
-        key_format.clone(),
+        key_format,
         SigningAlgorithm::EdDSA,
     );
 
@@ -206,13 +202,11 @@ async fn test_kid_and_iss_are_set_correctly_in_generated_token() {
     let header = jsonwebtoken::decode_header(&token).expect("Should be able to decode header");
     assert_eq!(header.kid, Some(expected_kid.to_string()), "kid header should match");
 
-    let unverified_claims = jsonwebtoken::dangerous::insecure_decode::<crate::jwt::TokenClaims>(&token)
+    let unverified_claims = jsonwebtoken::dangerous::insecure_decode::<TokenClaims>(&token)
         .expect("Should be able to decode claims")
         .claims;
     assert_eq!(unverified_claims.iss, expected_iss, "iss claim should match");
 }
-
-// ===== VaultJwtGenerator =====
 
 #[tokio::test]
 async fn test_vault_jwt_generator_generates_valid_jwt_structure() {
@@ -220,6 +214,7 @@ async fn test_vault_jwt_generator_generates_valid_jwt_structure() {
 
     let generator = VaultJwtGenerator::builder()
         .signing_client(mock_vault as Arc<dyn VaultSigningClient>)
+        .key_name_prefix("signing")
         .build();
 
     let pc = ParticipantContext::builder()
@@ -272,6 +267,7 @@ async fn test_vault_jwt_generator_uses_transformed_key_name_in_kid() {
 
     let generator = VaultJwtGenerator::builder()
         .signing_client(mock_vault as Arc<dyn VaultSigningClient>)
+        .key_name_prefix("signing")
         .build();
 
     let pc = ParticipantContext::builder()
@@ -308,6 +304,7 @@ async fn test_vault_jwt_generator_sets_iat_automatically() {
 
     let generator = VaultJwtGenerator::builder()
         .signing_client(mock_vault as Arc<dyn VaultSigningClient>)
+        .key_name_prefix("signing")
         .build();
 
     let pc = ParticipantContext::builder()
@@ -357,6 +354,7 @@ async fn test_vault_jwt_generator_with_different_key_versions() {
 
     let generator = VaultJwtGenerator::builder()
         .signing_client(mock_vault as Arc<dyn VaultSigningClient>)
+        .key_name_prefix("signing")
         .build();
 
     let pc = ParticipantContext::builder()
@@ -390,6 +388,7 @@ async fn test_vault_jwt_generator_preserves_custom_claims() {
 
     let generator = VaultJwtGenerator::builder()
         .signing_client(mock_vault as Arc<dyn VaultSigningClient>)
+        .key_name_prefix("signing")
         .build();
 
     let pc = ParticipantContext::builder()

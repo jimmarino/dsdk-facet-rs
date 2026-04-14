@@ -227,8 +227,7 @@ fn test_verification_method_to_key_material_multibase() {
     }))
     .unwrap();
 
-    let result =
-        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "key-1");
+    let result = DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "key-1");
 
     assert!(result.is_ok());
     let key_material = result.unwrap();
@@ -247,8 +246,7 @@ fn test_verification_method_to_key_material_invalid_multibase() {
     }))
     .unwrap();
 
-    let result =
-        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "key-1");
+    let result = DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "key-1");
 
     assert!(result.is_err());
 }
@@ -267,8 +265,7 @@ fn test_verification_method_to_key_material_jwk_unsupported() {
     }))
     .unwrap();
 
-    let result =
-        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "key-1");
+    let result = DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "key-1");
 
     assert!(result.is_err());
     match result.unwrap_err() {
@@ -288,8 +285,7 @@ fn test_verification_method_to_key_material_no_key() {
     }))
     .unwrap();
 
-    let result =
-        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "key-1");
+    let result = DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "key-1");
 
     assert!(result.is_err());
     match result.unwrap_err() {
@@ -457,7 +453,7 @@ async fn test_resolve_key_network_error() {
 #[tokio::test]
 async fn test_did_web_sign_verify_roundtrip_via_multibase() {
     use crate::context::ParticipantContext;
-    use crate::jwt::jwtutils::{StaticSigningKeyResolver, generate_ed25519_keypair_der};
+    use crate::jwt::test_fixtures::{StaticSigningKeyResolver, generate_ed25519_keypair_der};
     use crate::jwt::{
         DidWebVerificationKeyResolver, JwtGenerator, JwtVerifier, KeyFormat, LocalJwtGenerator, LocalJwtVerifier,
         SigningAlgorithm, TokenClaims, VerificationMethod,
@@ -510,15 +506,13 @@ async fn test_did_web_sign_verify_roundtrip_via_multibase() {
     }))
     .expect("VerificationMethod deserialization");
 
-    let key_material = DidWebVerificationKeyResolver::verification_method_to_key_material(
-        &vm,
-        "did:web:consumer#key-1",
-    )
-    .expect("key material extraction");
+    let key_material =
+        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "did:web:consumer#key-1")
+            .expect("key material extraction");
 
     // Step 5: verify the JWT
     let static_resolver = Arc::new(
-        crate::jwt::jwtutils::StaticVerificationKeyResolver::builder()
+        crate::jwt::test_fixtures::StaticVerificationKeyResolver::builder()
             .key(key_material.key)
             .key_format(key_material.key_format)
             .build(),

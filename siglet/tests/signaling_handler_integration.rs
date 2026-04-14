@@ -21,7 +21,7 @@ use dataplane_sdk::core::handler::DataFlowHandler;
 use dataplane_sdk::core::model::data_address::{DataAddress, EndpointProperty};
 use dataplane_sdk::core::model::data_flow::{DataFlow, DataFlowType};
 use dsdk_facet_core::context::ParticipantContext;
-use dsdk_facet_core::jwt::jwtutils::{
+use dsdk_facet_core::jwt::test_fixtures::{
     StaticSigningKeyResolver, StaticVerificationKeyResolver, generate_ed25519_keypair_pem,
 };
 use dsdk_facet_core::jwt::{JwkSet, JwkSetProvider, KeyFormat, LocalJwtGenerator, LocalJwtVerifier, SigningAlgorithm};

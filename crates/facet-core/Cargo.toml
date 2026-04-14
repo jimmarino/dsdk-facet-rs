@@ -3,6 +3,9 @@ name = "dsdk-facet-core"
 version.workspace = true
 edition.workspace = true
 
+[features]
+test-fixtures = []
+
 [dependencies]
 bon = { workspace = true }
 thiserror = { workspace = true }

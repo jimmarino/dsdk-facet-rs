@@ -33,8 +33,10 @@ const TEST_SIGNING_KEY_NAME: &str = "test-signing-key";
 const INITIAL_KEY_VERSION: usize = 1;
 
 fn create_test_context() -> ParticipantContext {
+    // id = "signing-key" so that the generator derives key "test-signing-key"
+    // (prefix "test" + "-" + id "signing-key")
     ParticipantContext {
-        id: "test-id".to_string(),
+        id: "signing-key".to_string(),
         identifier: "test-identifier".to_string(),
         audience: "test-audience".to_string(),
     }
@@ -245,9 +247,10 @@ async fn test_content_signing_determinism(client: &Arc<HashicorpVaultClient>) {
 
 /// Test JWT generation and structure validation
 async fn test_jwt_generation(client: &Arc<HashicorpVaultClient>, ctx: &ParticipantContext) {
-    // Create a VaultJwtGenerator with the vault client
+    // VaultJwtGenerator with prefix "test" and ctx.id "signing-key" derives key "test-signing-key"
     let jwt_generator = VaultJwtGenerator::builder()
         .signing_client(Arc::clone(client) as Arc<dyn VaultSigningClient>)
+        .key_name_prefix("test")
         .build();
 
     // Create token claims

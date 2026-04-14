@@ -14,7 +14,8 @@ tokio = { workspace = true }
 anyhow = "1.0"
 base64 = { workspace = true }
 dsdk-facet-testcontainers = { path = "../crates/facet-testcontainers" }
-dsdk-facet-core = { path = "../crates/facet-core" }
+dsdk-facet-core = { path = "../crates/facet-core", features = ["test-fixtures"] }
+dsdk-facet-hashicorp-vault = { path = "../crates/facet-hashicorp-vault" }
 uuid = { workspace = true }
 serde_json = { workspace = true }
 reqwest = "0.12"

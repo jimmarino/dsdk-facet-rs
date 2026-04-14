@@ -120,9 +120,14 @@ vault_cmd secrets list | grep -q "secret/" && echo "KV v2 engine already enabled
 echo "Enabling Transit secrets engine..."
 vault_cmd secrets enable transit 2>/dev/null && echo "Transit engine enabled" || echo "Transit engine already enabled"
 
-# Create a signing key for Siglet
+# Create the access-token signing key for Siglet.
+# Key name = {ACCESS_TOKEN_SIGNING_KEY_PREFIX}-{SIGLET_PC_ID} = "signing-siglet".
 echo "Creating signing key for Siglet..."
-vault_cmd write -f transit/keys/siglet-signing-key type=ed25519 2>/dev/null && echo "Signing key created" || echo "Signing key already exists"
+vault_cmd write -f transit/keys/signing-siglet type=ed25519 2>/dev/null && echo "Signing key created" || echo "Signing key already exists"
+
+# Note: the consumer PC signing transit key and its Kubernetes Secret are provisioned
+# by setup-consumer-did.sh (idempotently), so they work with both `make setup` and
+# `make test-fast` / `make setup-consumer-did`.
 
 # Update test policy to include Transit access
 echo "Updating test policy with Transit access..."
@@ -178,6 +183,6 @@ echo "  - test-role-sa2 (SA: test-app-sa2, TTL: 1h)"
 echo "  - test-role-short-ttl (SA: test-app-sa, TTL: 60s)"
 echo "  - siglet-role (SA: siglet-sa, TTL: 1h)"
 echo ""
-echo "Transit engine enabled with signing key: siglet-signing-key"
+echo "Transit engine enabled with signing key: signing-siglet"
 echo "Root token: ${VAULT_TOKEN}"
 echo ""

@@ -19,13 +19,16 @@
 
 use crate::fixtures::consumer_did::ensure_consumer_did;
 use crate::fixtures::siglet::{SigletDeployment, ensure_siglet_deployed};
+use crate::fixtures::vault::ensure_vault_client;
 use crate::utils::*;
 use anyhow::{Context, Result};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use dsdk_facet_core::context::ParticipantContext;
-use dsdk_facet_core::jwt::jwtutils::StaticSigningKeyResolver;
-use dsdk_facet_core::jwt::{JwkSet, JwtGenerator, KeyFormat, LocalJwtGenerator, SigningAlgorithm, TokenClaims};
+use dsdk_facet_core::jwt::{JwkSet, VaultJwtGenerator};
+use dsdk_facet_core::token::client::TokenClient;
+use dsdk_facet_core::token::client::oauth::OAuth2TokenClient;
+use dsdk_facet_core::vault::VaultSigningClient;
 use jsonwebtoken::Algorithm;
 use reqwest::Client;
 use std::sync::Arc;
@@ -87,8 +90,7 @@ async fn test_siglet_deployment_and_health() -> Result<()> {
 #[ignore]
 async fn test_pull_operations() -> Result<()> {
     let deployment = ensure_siglet_deployed().await?;
-    let key_material = ensure_consumer_did().await?;
-    let private_key_der = key_material.private_key_der.to_vec();
+    ensure_consumer_did().await?;
 
     // Use unique IDs per run so retries don't collide with flows left in Siglet
     // state from a prior attempt.
@@ -101,7 +103,7 @@ async fn test_pull_operations() -> Result<()> {
     step_started(&ctx, &start_out.data_address).await?;
     let api_token = retrieve_and_verify_token(&ctx).await?;
     verify_jwks_signature(&ctx, &start_out.token).await?;
-    let refresh_out = do_refresh(&ctx, &api_token, &start_out.refresh_token, &private_key_der).await?;
+    let refresh_out = do_refresh(&ctx, &api_token, &start_out.refresh_token).await?;
     check_token_rotation(&ctx, &api_token, &refresh_out.new_access_token).await?;
     step_terminate(&ctx).await?;
 
@@ -164,6 +166,8 @@ struct RefreshOutput {
 /// contains the expected public key. A mismatch causes an opaque "Invalid token
 /// signature" at the refresh step, so we fail fast with a clear message here.
 async fn preflight_verify_did(ctx: &TestCtx) -> Result<()> {
+    let consumer_did = ensure_consumer_did().await?;
+
     let did_doc_raw = kubectl_exec(
         E2E_NAMESPACE,
         &ctx.pod_name,
@@ -175,34 +179,47 @@ async fn preflight_verify_did(ctx: &TestCtx) -> Result<()> {
     let did_doc: serde_json::Value =
         serde_json::from_str(&did_doc_raw).context("Failed to parse consumer DID document")?;
 
-    let served_multibase = did_doc
+    // Find the verification method matching the per-PC transit signing key.
+    let expected_fragment = &consumer_did.pc_signing_key_id;
+    let vms = did_doc
         .get("verificationMethod")
-        .and_then(|vms| vms.as_array())
-        .and_then(|arr| arr.first())
-        .and_then(|vm| vm.get("publicKeyMultibase"))
-        .and_then(|v| v.as_str())
-        .context("No publicKeyMultibase in served DID document")?;
+        .and_then(|v| v.as_array())
+        .context("No verificationMethod array in DID document")?;
 
-    let expected_multibase = String::from_utf8(
-        read_secret_bytes(E2E_NAMESPACE, "consumer-did-private-key", "publicKeyMultibase")
-            .context("Failed to read expected public key from consumer-did-private-key secret")?,
-    )
-    .context("Non-UTF8 public key multibase in secret")?;
+    let vm = vms
+        .iter()
+        .find(|vm| {
+            vm.get("id")
+                .and_then(|id| id.as_str())
+                .map(|id| id.ends_with(&format!("#{}", expected_fragment)))
+                .unwrap_or(false)
+        })
+        .with_context(|| {
+            format!(
+                "Verification method '{}' not found in DID document. \
+                 Re-run 'cd e2e && ./scripts/setup.sh' to reprovision.",
+                expected_fragment
+            )
+        })?;
+
+    let served_multibase = vm
+        .get("publicKeyMultibase")
+        .and_then(|v| v.as_str())
+        .context("No publicKeyMultibase in verification method")?;
 
     assert_eq!(
-        served_multibase, expected_multibase,
-        "DID document public key mismatch: the consumer-did pod is not serving the key from setup.sh.\n\
+        served_multibase, consumer_did.pc_signing_key_multibase,
+        "DID document public key mismatch for '{}'.\n\
          Served:   {}\n\
          Expected: {}\n\
          Re-run 'cd e2e && ./scripts/setup.sh' to reprovision the consumer DID server.",
-        served_multibase, expected_multibase
+        expected_fragment, served_multibase, consumer_did.pc_signing_key_multibase
     );
     println!("DID document key verified: {}", &served_multibase[..20]);
     Ok(())
 }
 
-/// Step 1: Consumer calls the prepare endpoint. For a pull transfer no data
-/// address is returned.
+/// Step 1: Consumer calls the prepare endpoint. For a pull transfer no data address is returned.
 async fn step_prepare(ctx: &TestCtx) -> Result<()> {
     let message = serde_json::json!({
         "datasetId": ctx.dataset_id,
@@ -494,91 +511,50 @@ async fn verify_jwks_signature(ctx: &TestCtx, token: &str) -> Result<()> {
     Ok(())
 }
 
-/// Step 7: Consumer refreshes the access token via the Refresh API. Returns
-/// the new access token issued by Siglet.
-async fn do_refresh(
-    ctx: &TestCtx,
-    api_token: &str,
-    refresh_token: &str,
-    private_key_der: &[u8],
-) -> Result<RefreshOutput> {
-    let resolver = Arc::new(
-        StaticSigningKeyResolver::builder()
-            .key(private_key_der.to_vec())
-            .key_format(KeyFormat::DER)
-            .kid("did:web:consumer#key-1")
+/// Step 7: Consumer refreshes the access token via the Refresh API.
+///
+/// consumer's per-PC Vault transit key (`client-signing-test-participant-context`).
+/// This exercises the same production code path that Siglet uses internally.
+async fn do_refresh(ctx: &TestCtx, api_token: &str, refresh_token: &str) -> Result<RefreshOutput> {
+    let vault = ensure_vault_client().await?;
+
+    let client_jwt_generator = Arc::new(
+        VaultJwtGenerator::builder()
+            .signing_client(vault.vault_client.clone() as Arc<dyn VaultSigningClient>)
+            .key_name_prefix("client-signing")
             .build(),
     );
-    let jwt_gen = Arc::new(
-        LocalJwtGenerator::builder()
-            .signing_key_resolver(resolver)
-            .signing_algorithm(SigningAlgorithm::EdDSA)
-            .build(),
-    );
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
-    let mut token_claim = serde_json::Map::new();
-    token_claim.insert("token".to_string(), serde_json::Value::String(api_token.to_string()));
-    let claims = TokenClaims::builder()
-        .iss("did:web:consumer")
-        .sub("did:web:consumer")
-        .aud("did:web:provider")
-        .exp(now + 300)
-        .custom(token_claim)
-        .build();
+
+    let oauth_client = OAuth2TokenClient::builder().jwt_generator(client_jwt_generator).build();
+
+    // PC id drives the transit key lookup: key = "client-signing-{pc.id}"
+    // PC identifier becomes iss/sub in the proof JWT; must match the DID document issuer.
     let consumer_ctx = ParticipantContext::builder()
         .id("test-participant-context")
         .identifier("did:web:consumer")
-        .audience("did:web:consumer")
         .build();
-    let bearer_jwt = jwt_gen
-        .generate_token(&consumer_ctx, claims)
-        .await
-        .context("Failed to generate JWT for refresh")?;
 
     let refresh_url = format!("http://localhost:{}/token/refresh", ctx.refresh_api_port);
-    let response = ctx
-        .client
-        .post(&refresh_url)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .header("Authorization", format!("Bearer {}", bearer_jwt))
-        .body(format!("grant_type=refresh_token&refresh_token={}", refresh_token))
-        .send()
+    let result = oauth_client
+        .refresh_token(
+            &consumer_ctx,
+            "did:web:provider", // endpoint_identifier → aud claim in proof JWT
+            api_token,
+            refresh_token,
+            &refresh_url,
+        )
         .await
-        .context("Token refresh request failed")?;
+        .context("Token refresh via OAuth2TokenClient failed")?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        anyhow::bail!("Token refresh returned HTTP {}: {}", status, body);
-    }
-
-    let result: serde_json::Value = response
-        .json()
-        .await
-        .context("Failed to parse token refresh response")?;
-
+    assert!(!result.token.is_empty(), "Refreshed access token should not be empty");
     assert!(
-        result
-            .get("access_token")
-            .and_then(|v| v.as_str())
-            .is_some_and(|s| !s.is_empty()),
-        "Refreshed access token should not be empty, got: {}",
-        result
-    );
-    assert!(
-        result
-            .get("refresh_token")
-            .and_then(|v| v.as_str())
-            .is_some_and(|s| !s.is_empty()),
-        "New refresh token should not be empty, got: {}",
-        result
+        !result.refresh_token.is_empty(),
+        "New refresh token should not be empty"
     );
 
-    let new_access_token = result["access_token"].as_str().unwrap().to_string();
-    Ok(RefreshOutput { new_access_token })
+    Ok(RefreshOutput {
+        new_access_token: result.token,
+    })
 }
 
 /// Steps 8–9: Verify that the old access token is rejected after rotation and

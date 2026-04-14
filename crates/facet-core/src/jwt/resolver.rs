@@ -10,13 +10,12 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::context::ParticipantContext;
 use crate::jwt::{
-    Jwk, JwkKeyType, JwkPublicKeyUse, JwkSet, JwkSetProvider, JwtGenerationError, JwtVerificationError, KeyFormat,
-    KeyMaterial, SigningKeyResolver, VerificationKeyResolver,
+    Jwk, JwkKeyType, JwkPublicKeyUse, JwkSet, JwkSetProvider, JwtVerificationError, KeyFormat,
+    KeyMaterial, VerificationKeyResolver,
 };
 use crate::util::task::TaskHandle;
-use crate::vault::{PublicKeyFormat, VaultClient, VaultSigningClient};
+use crate::vault::{PublicKeyFormat, VaultSigningClient};
 use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -28,103 +27,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use sync::Mutex;
 use tokio::sync::watch;
-
-#[derive(Builder)]
-pub struct StaticVerificationKeyResolver {
-    pub key: Vec<u8>,
-    #[builder(default = KeyFormat::PEM)]
-    key_format: KeyFormat,
-}
-
-#[async_trait]
-impl VerificationKeyResolver for StaticVerificationKeyResolver {
-    async fn resolve_key(&self, _iss: &str, kid: &str) -> Result<KeyMaterial, JwtVerificationError> {
-        Ok(KeyMaterial::builder()
-            .key(self.key.clone())
-            .key_format(self.key_format)
-            .kid(kid)
-            .build())
-    }
-}
-
-#[derive(Builder)]
-pub struct StaticSigningKeyResolver {
-    pub key: Vec<u8>,
-
-    #[builder(into)]
-    pub kid: String,
-
-    #[builder(default = KeyFormat::PEM)]
-    key_format: KeyFormat,
-}
-
-#[async_trait]
-impl SigningKeyResolver for StaticSigningKeyResolver {
-    async fn resolve_key(&self, _: &ParticipantContext) -> Result<KeyMaterial, JwtGenerationError> {
-        Ok(KeyMaterial::builder()
-            .key_format(self.key_format)
-            .key(self.key.clone())
-            .kid(self.kid.clone())
-            .build())
-    }
-}
-
-/// A signing key resolver that retrieves keys from a VaultClient.
-///
-/// This resolver delegates to a VaultClient to fetch signing keys at runtime.
-/// The vault stores a JSON-serialized `SigningKeyRecord` containing the
-/// private key, its identifier (kid), and key format.
-/// The issuer (iss) is derived from the participant context's identifier field.
-#[derive(Builder)]
-pub struct VaultSigningKeyResolver {
-    /// The vault client to use for resolving keys
-    vault_client: Arc<dyn VaultClient>,
-
-    /// Base path in the vault where keys are stored
-    #[builder(into)]
-    base_path: String,
-}
-
-#[async_trait]
-impl SigningKeyResolver for VaultSigningKeyResolver {
-    async fn resolve_key(&self, participant_context: &ParticipantContext) -> Result<KeyMaterial, JwtGenerationError> {
-        let json_str = self
-            .vault_client
-            .resolve_secret(participant_context, &self.base_path)
-            .await
-            .map_err(|e| {
-                JwtGenerationError::GenerationError(format!("Failed to resolve signing key from vault: {}", e))
-            })?;
-
-        let record: SigningKeyRecord = serde_json::from_str(&json_str).map_err(|e| {
-            JwtGenerationError::GenerationError(format!("Failed to deserialize SigningKeyRecord: {}", e))
-        })?;
-
-        Ok(KeyMaterial::builder()
-            .key_format(record.key_format)
-            .key(record.private_key.into_bytes())
-            .kid(record.kid)
-            .build())
-    }
-}
-
-/// A record containing a private signing key and its identifier.
-///
-/// This structure is stored in the vault as JSON.
-#[derive(Debug, Clone, Builder, serde::Serialize, serde::Deserialize)]
-pub struct SigningKeyRecord {
-    /// The private key in the configured format (PEM or DER)
-    #[builder(into)]
-    pub private_key: String,
-
-    /// The key identifier (kid)
-    #[builder(into)]
-    pub kid: String,
-
-    /// The format of the private key (PEM or DER)
-    #[builder(default = KeyFormat::PEM)]
-    pub key_format: KeyFormat,
-}
 
 /// Inner state shared between the resolver and the background refresh task.
 struct VaultKeyResolverState {

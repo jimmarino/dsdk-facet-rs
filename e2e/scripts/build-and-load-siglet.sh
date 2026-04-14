@@ -91,7 +91,13 @@ E2E_NAMESPACE="${E2E_NAMESPACE:-vault-e2e-test}"
 if kubectl get deployment siglet -n "${E2E_NAMESPACE}" &>/dev/null; then
     echo "Restarting siglet deployment to pick up new image..."
     kubectl rollout restart deployment/siglet -n "${E2E_NAMESPACE}"
-    kubectl rollout status deployment/siglet -n "${E2E_NAMESPACE}" --timeout=300s
+
+    # Wait for the new pod to become Available. This returns as soon as the desired
+    # number of replicas are ready — without waiting for old terminating pods to be
+    # fully cleaned up (which can stall on slow nodes / macOS Kind clusters).
+    kubectl wait --for=condition=available deployment/siglet \
+        -n "${E2E_NAMESPACE}" --timeout=300s
+
     echo "Siglet restarted"
     echo ""
 fi

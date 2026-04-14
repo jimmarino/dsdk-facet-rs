@@ -66,6 +66,17 @@ pub const VAULT_TOKEN_TEMP_FILE: &str = "siglet_vault_token";
 /// Random server secret size in bytes (256 bits)
 pub const RANDOM_SECRET_SIZE_BYTES: usize = 32;
 
+/// Prefix for per-PC Vault transit keys used to sign proof JWTs.
+/// The full key name is `{CLIENT_TRANSIT_KEY_PREFIX}-{pc.id}`.
+pub const CLIENT_TRANSIT_KEY_PREFIX: &str = "client-signing";
+
+/// Siglet's own participant context ID, used to derive the access-token signing key name.
+/// The transit key is `{ACCESS_TOKEN_SIGNING_KEY_PREFIX}-{SIGLET_PC_ID}` = `"signing-siglet"`.
+pub const SIGLET_PC_ID: &str = "siglet";
+
+/// Prefix for Vault transit keys used to sign access tokens issued by Siglet.
+pub const ACCESS_TOKEN_SIGNING_KEY_PREFIX: &str = "signing";
+
 // ============================================================================
 // Runtime
 // ============================================================================
@@ -133,6 +144,7 @@ pub async fn assemble(cfg: &SigletConfig) -> Result<SigletRuntime, SigletError> 
         vault_provider_verifier,
         renewable_token_store,
         vault_resolver,
+        SIGLET_PC_ID,
     );
 
     let sdk = assemble_memory_sdk(cfg, token_store.clone(), token_manager.clone()).await?;
@@ -141,10 +153,9 @@ pub async fn assemble(cfg: &SigletConfig) -> Result<SigletRuntime, SigletError> 
     let token_api_handler = assemble_token_api(
         token_store,
         lock_manager,
-        jwt_generator,
+        vault_client.clone() as Arc<dyn VaultSigningClient>,
         token_manager.clone(),
         client,
-        cfg,
     );
 
     Ok(SigletRuntime {
@@ -208,11 +219,7 @@ pub async fn assemble_postgres_stores(
         .await
         .map_err(|e| SigletError::Token(Box::new(e)))?;
 
-    Ok((
-        token_store as Arc<dyn TokenStore>,
-        renewable_token_store as Arc<dyn RenewableTokenStore>,
-        lock_manager as Arc<dyn LockManager>,
-    ))
+    Ok((token_store, renewable_token_store, lock_manager))
 }
 
 // ============================================================================
@@ -242,17 +249,27 @@ pub fn assemble_refresh_api(token_manager: Arc<dyn TokenManager>) -> TokenRefres
 }
 
 /// Assembles the token management API handler.
+///
+/// Uses a per-PC Vault transit key to sign proof JWTs in the token renewal flow.
+/// Each PC's transit key is named `{CLIENT_TRANSIT_KEY_PREFIX}-{pc.id}` and must be
+/// provisioned out-of-band. The corresponding public key must be published in the PC's
+/// DID document so the server-side `DidWebVerificationKeyResolver` can verify the JWT.
 pub fn assemble_token_api(
     token_store: Arc<dyn TokenStore>,
     lock_manager: Arc<dyn LockManager>,
-    generator: Arc<dyn JwtGenerator>,
+    vault_client: Arc<dyn VaultSigningClient>,
     token_manager: Arc<dyn TokenManager>,
     http_client: Client,
-    cfg: &SigletConfig,
 ) -> TokenApiHandler {
+    let client_jwt_generator = Arc::new(
+        VaultJwtGenerator::builder()
+            .signing_client(vault_client)
+            .key_name_prefix(CLIENT_TRANSIT_KEY_PREFIX)
+            .build(),
+    );
     let token_client = Arc::new(
         OAuth2TokenClient::builder()
-            .jwt_generator(generator)
+            .jwt_generator(client_jwt_generator)
             .http_client(http_client)
             .expiration_seconds(3600)
             .build(),
@@ -292,6 +309,7 @@ fn create_jwt_components(
     let jwt_generator = Arc::new(
         VaultJwtGenerator::builder()
             .signing_client(vault_client.clone() as Arc<dyn VaultSigningClient>)
+            .key_name_prefix(ACCESS_TOKEN_SIGNING_KEY_PREFIX)
             .build(),
     );
 
@@ -343,6 +361,7 @@ fn create_token_manager(
     provider_verifier: Arc<dyn JwtVerifier>,
     renewable_token_store: Arc<dyn RenewableTokenStore>,
     jwk_set_provider: Arc<dyn JwkSetProvider>,
+    issuer_id: &str,
 ) -> Arc<dyn TokenManager> {
     let issuer = cfg
         .token_issuer
@@ -356,6 +375,7 @@ fn create_token_manager(
     Arc::new(
         JwtTokenManager::builder()
             .issuer(issuer)
+            .issuer_id(issuer_id.to_string())
             .refresh_endpoint(refresh_endpoint)
             .server_secret(server_secret)
             .token_store(renewable_token_store)

@@ -14,8 +14,8 @@
 
 use super::common::*;
 use crate::context::ParticipantContext;
-use crate::jwt::jwtutils::generate_ed25519_keypair_der;
-use crate::jwt::jwtutils::{generate_ed25519_keypair_pem, generate_rsa_keypair_pem};
+use crate::jwt::test_fixtures::generate_ed25519_keypair_der;
+use crate::jwt::test_fixtures::{generate_ed25519_keypair_pem, generate_rsa_keypair_pem};
 use crate::jwt::{JwtGenerator, JwtVerificationError, JwtVerifier, KeyFormat, SigningAlgorithm, TokenClaims};
 use chrono::Utc;
 

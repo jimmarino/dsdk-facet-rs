@@ -12,8 +12,8 @@
 
 use crate::context::ParticipantContext;
 use crate::jwt::LocalJwtGenerator;
-use crate::jwt::jwtutils::StaticSigningKeyResolver;
-use crate::jwt::jwtutils::generate_ed25519_keypair_pem;
+use crate::jwt::test_fixtures::StaticSigningKeyResolver;
+use crate::jwt::test_fixtures::generate_ed25519_keypair_pem;
 use crate::token::client::TokenClient;
 use crate::token::client::oauth::OAuth2TokenClient;
 use base64::Engine;
@@ -41,9 +41,7 @@ async fn test_refresh_token_success() {
             .build(),
     );
 
-    let client = OAuth2TokenClient::builder()
-        .jwt_generator(jwt_generator)
-        .build();
+    let client = OAuth2TokenClient::builder().jwt_generator(jwt_generator).build();
 
     Mock::given(method("POST"))
         .and(path("/token/refresh"))
@@ -102,9 +100,7 @@ async fn test_proof_jwt_sub_is_participant_context_identifier() {
             .build(),
     );
 
-    let client = OAuth2TokenClient::builder()
-        .jwt_generator(jwt_generator)
-        .build();
+    let client = OAuth2TokenClient::builder().jwt_generator(jwt_generator).build();
 
     Mock::given(method("POST"))
         .and(path("/token/refresh"))
