@@ -353,6 +353,7 @@ fn generate_server_secret(cfg: &SigletConfig) -> Result<ValidatedServerSecret, S
 }
 
 /// Creates the token manager with all dependencies.
+#[allow(clippy::too_many_arguments)]
 fn create_token_manager(
     cfg: &SigletConfig,
     server_secret: ValidatedServerSecret,
