@@ -69,7 +69,7 @@ spec:
         - name: SIGLET_VAULT_TOKEN_FILE
           value: "/vault/secrets/.vault-token"
         - name: SIGLET_VAULT_SIGNING_KEY_NAME
-          value: "siglet-signing-key"
+          value: "signing-siglet"
         - name: SIGLET_TOKEN_ISSUER
           value: "siglet-e2e"
         - name: SIGLET_TOKEN_REFRESH_ENDPOINT

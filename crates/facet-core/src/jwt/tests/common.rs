@@ -20,7 +20,6 @@ use std::sync::Arc;
 /// Helper function to create a JWT generator for testing
 pub fn create_test_generator(
     private_key: Vec<u8>,
-    iss: &str,
     kid: &str,
     key_format: KeyFormat,
     signing_algorithm: SigningAlgorithm,
@@ -28,7 +27,6 @@ pub fn create_test_generator(
     let signing_resolver = Arc::new(
         StaticSigningKeyResolver::builder()
             .key(private_key)
-            .iss(iss)
             .kid(kid)
             .key_format(key_format)
             .build(),
@@ -103,7 +101,11 @@ impl MockVaultSigningClient {
 
 #[async_trait]
 impl VaultSigningClient for MockVaultSigningClient {
-    async fn get_key_metadata(&self, format: PublicKeyFormat) -> Result<KeyMetadata, VaultError> {
+    fn signing_key_name(&self) -> Option<&str> {
+        Some(&self.key_name)
+    }
+
+    async fn get_key_metadata(&self, _key_name: &str, format: PublicKeyFormat) -> Result<KeyMetadata, VaultError> {
         // Generate a mock Ed25519 public key (32 bytes)
         // Using a deterministic value for testing consistency
         let mock_ed25519_pubkey = [
@@ -131,7 +133,7 @@ impl VaultSigningClient for MockVaultSigningClient {
         })
     }
 
-    async fn sign_content(&self, _content: &[u8]) -> Result<Vec<u8>, VaultError> {
+    async fn sign_content(&self, _key_name: &str, _content: &[u8]) -> Result<Vec<u8>, VaultError> {
         Ok(self.signature_bytes.clone())
     }
 }

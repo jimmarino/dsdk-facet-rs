@@ -32,61 +32,112 @@ use tokio::time::Duration;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+/// Consolidates three success-path scenarios into one MockServer startup:
+///   A. Renewal occurs and error callback is not invoked (combines old tests 1 & 5).
+///   B. Immediate shutdown causes the loop to exit cleanly (old test 4).
+///
+/// Using `start_paused = true` so Tokio auto-advances simulated time when idle.
+/// Scoped mounts (`mount_as_scoped`) ensure each sub-scenario's mock is removed
+/// before the next one mounts, preventing overlapping matchers on the same path.
+/// Time carries forward between sub-scenarios, which is safe because each creates
+/// fresh state, channels, and a new `TokenRenewer`.
 #[tokio::test(start_paused = true)]
-async fn test_renewal_loop_successful_renewal_cycle() {
+async fn test_renewal_loop_success_scenarios() {
     let mock_server = MockServer::start().await;
 
-    Mock::given(method("POST"))
-        .and(path("/v1/auth/token/renew-self"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "auth": {
-                "client_token": "test-token",
-                "lease_duration": 3600
-            }
-        })))
-        .expect(1..)
-        .mount(&mock_server)
-        .await;
+    // Sub-scenario A: renewal occurs, error callback not invoked
+    {
+        let _guard = Mock::given(method("POST"))
+            .and(path("/v1/auth/token/renew-self"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "auth": { "client_token": "test-token", "lease_duration": 3600 }
+            })))
+            .expect(1..)
+            .mount_as_scoped(&mock_server)
+            .await;
 
-    let config = HashicorpVaultConfig::builder()
-        .vault_url(mock_server.uri())
-        .auth_config(VaultAuthConfig::OAuth2 {
-            client_id: "test-client".to_string(),
-            client_secret: "test-secret".to_string(),
-            token_url: "http://localhost/token".to_string(),
-            role: None,
-        })
-        .build();
+        let error_count = Arc::new(AtomicUsize::new(0));
+        let error_count_clone = Arc::clone(&error_count);
+        let callback: ErrorCallback = Arc::new(move |_| {
+            error_count_clone.fetch_add(1, Ordering::SeqCst);
+        });
 
-    let http_client = Client::new();
-    let state = create_test_state("test-token", 10, 0);
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let config = HashicorpVaultConfig::builder()
+            .vault_url(mock_server.uri())
+            .auth_config(VaultAuthConfig::OAuth2 {
+                client_id: "test-client".to_string(),
+                client_secret: "test-secret".to_string(),
+                token_url: "http://localhost/token".to_string(),
+                role: None,
+            })
+            .on_renewal_error(callback)
+            .build();
 
-    let renewer = create_token_renewer(config.clone(), http_client, Arc::clone(&state));
-    let trigger_config = dsdk_facet_hashicorp_vault::renewal::RenewalTriggerConfig::TimeBased {
-        renewal_percentage: config.token_renewal_percentage,
-        renewal_jitter: config.renewal_jitter,
-    };
-    let trigger = trigger_config.build().expect("Failed to build trigger");
-    let loop_handle = tokio::spawn(async move {
-        renewer.renewal_loop(shutdown_rx, trigger).await;
-    });
+        let state = create_test_state("test-token", 5, 0);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let renewer = create_token_renewer(config.clone(), Client::new(), Arc::clone(&state));
+        let trigger = dsdk_facet_hashicorp_vault::renewal::RenewalTriggerConfig::TimeBased {
+            renewal_percentage: config.token_renewal_percentage,
+            renewal_jitter: config.renewal_jitter,
+        }
+        .build()
+        .expect("Failed to build trigger");
+        let loop_handle = tokio::spawn(async move { renewer.renewal_loop(shutdown_rx, trigger).await });
 
-    // Wait for renewal to happen (last_renewed is set)
-    let renewed = wait_for_condition(&state, |s| s.last_renewed().is_some(), Duration::from_secs(20)).await;
+        let renewed = wait_for_condition(&state, |s| s.last_renewed().is_some(), Duration::from_secs(20)).await;
+        assert!(renewed, "Renewal should have occurred");
+        assert_eq!(state.read().await.consecutive_failures(), 0);
+        assert_eq!(
+            error_count.load(Ordering::SeqCst),
+            0,
+            "Error callback must not fire on success"
+        );
 
-    assert!(renewed, "Renewal should have occurred");
+        shutdown_tx.send(true).unwrap();
+        tokio::time::timeout(Duration::from_secs(1), loop_handle)
+            .await
+            .expect("Loop should exit")
+            .unwrap();
+    }
 
-    let state_guard = state.read().await;
-    assert_eq!(state_guard.consecutive_failures(), 0);
-    assert!(state_guard.last_renewed().is_some());
-    drop(state_guard);
+    // Sub-scenario B: immediate shutdown exits cleanly (mock may not be called)
+    {
+        let _guard = Mock::given(method("POST"))
+            .and(path("/v1/auth/token/renew-self"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "auth": { "client_token": "test-token", "lease_duration": 3600 }
+            })))
+            .expect(0..)
+            .mount_as_scoped(&mock_server)
+            .await;
 
-    shutdown_tx.send(true).unwrap();
-    tokio::time::timeout(Duration::from_secs(1), loop_handle)
-        .await
-        .expect("Loop should exit")
-        .unwrap();
+        let config = HashicorpVaultConfig::builder()
+            .vault_url(mock_server.uri())
+            .auth_config(VaultAuthConfig::OAuth2 {
+                client_id: "test-client".to_string(),
+                client_secret: "test-secret".to_string(),
+                token_url: "http://localhost/token".to_string(),
+                role: None,
+            })
+            .build();
+
+        let state = create_test_state("test-token", 100, 0);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let renewer = create_token_renewer(config.clone(), Client::new(), Arc::clone(&state));
+        let trigger = dsdk_facet_hashicorp_vault::renewal::RenewalTriggerConfig::TimeBased {
+            renewal_percentage: config.token_renewal_percentage,
+            renewal_jitter: config.renewal_jitter,
+        }
+        .build()
+        .expect("Failed to build trigger");
+        let loop_handle = tokio::spawn(async move { renewer.renewal_loop(shutdown_rx, trigger).await });
+
+        shutdown_tx.send(true).unwrap();
+        tokio::time::timeout(Duration::from_secs(1), loop_handle)
+            .await
+            .expect("Loop should exit immediately")
+            .unwrap();
+    }
 }
 
 #[tokio::test(start_paused = true)]
@@ -215,116 +266,6 @@ async fn test_renewal_loop_token_expiration_recovery() {
     assert_eq!(state_guard.lease_duration(), 3600);
     assert_eq!(state_guard.consecutive_failures(), 0);
     drop(state_guard);
-
-    shutdown_tx.send(true).unwrap();
-    tokio::time::timeout(Duration::from_secs(1), loop_handle)
-        .await
-        .expect("Loop should exit")
-        .unwrap();
-}
-
-#[tokio::test(start_paused = true)]
-async fn test_renewal_loop_shutdown_signal() {
-    let mock_server = MockServer::start().await;
-
-    Mock::given(method("POST"))
-        .and(path("/v1/auth/token/renew-self"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "auth": {
-                "client_token": "test-token",
-                "lease_duration": 3600
-            }
-        })))
-        .mount(&mock_server)
-        .await;
-
-    let config = HashicorpVaultConfig::builder()
-        .vault_url(mock_server.uri())
-        .auth_config(VaultAuthConfig::OAuth2 {
-            client_id: "test-client".to_string(),
-            client_secret: "test-secret".to_string(),
-            token_url: "http://localhost/token".to_string(),
-            role: None,
-        })
-        .build();
-
-    let http_client = Client::new();
-    let state = create_test_state("test-token", 100, 0);
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
-
-    let renewer = create_token_renewer(config.clone(), http_client, Arc::clone(&state));
-    let trigger_config = dsdk_facet_hashicorp_vault::renewal::RenewalTriggerConfig::TimeBased {
-        renewal_percentage: config.token_renewal_percentage,
-        renewal_jitter: config.renewal_jitter,
-    };
-    let trigger = trigger_config.build().expect("Failed to build trigger");
-    let loop_handle = tokio::spawn(async move {
-        renewer.renewal_loop(shutdown_rx, trigger).await;
-    });
-
-    // Send shutdown immediately
-    shutdown_tx.send(true).unwrap();
-
-    tokio::time::timeout(Duration::from_secs(1), loop_handle)
-        .await
-        .expect("Loop should exit immediately")
-        .unwrap();
-}
-
-#[tokio::test(start_paused = true)]
-async fn test_renewal_loop_error_callback_not_invoked_on_success() {
-    let mock_server = MockServer::start().await;
-
-    Mock::given(method("POST"))
-        .and(path("/v1/auth/token/renew-self"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "auth": {
-                "client_token": "test-token",
-                "lease_duration": 3600
-            }
-        })))
-        .expect(1..)
-        .mount(&mock_server)
-        .await;
-
-    let error_count = Arc::new(AtomicUsize::new(0));
-    let error_count_clone = Arc::clone(&error_count);
-    let callback: ErrorCallback = Arc::new(move |_| {
-        error_count_clone.fetch_add(1, Ordering::SeqCst);
-    });
-
-    let config = HashicorpVaultConfig::builder()
-        .vault_url(mock_server.uri())
-        .auth_config(VaultAuthConfig::OAuth2 {
-            client_id: "test-client".to_string(),
-            client_secret: "test-secret".to_string(),
-            token_url: "http://localhost/token".to_string(),
-            role: None,
-        })
-        .on_renewal_error(callback)
-        .build();
-
-    let http_client = Client::new();
-    let state = create_test_state("test-token", 5, 0);
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
-
-    let renewer = create_token_renewer(config.clone(), http_client, Arc::clone(&state));
-    let trigger_config = dsdk_facet_hashicorp_vault::renewal::RenewalTriggerConfig::TimeBased {
-        renewal_percentage: config.token_renewal_percentage,
-        renewal_jitter: config.renewal_jitter,
-    };
-    let trigger = trigger_config.build().expect("Failed to build trigger");
-    let loop_handle = tokio::spawn(async move {
-        renewer.renewal_loop(shutdown_rx, trigger).await;
-    });
-
-    // Wait for renewal to complete
-    let renewed = wait_for_condition(&state, |s| s.last_renewed().is_some(), Duration::from_secs(20)).await;
-
-    assert!(renewed, "Renewal should have occurred");
-
-    // Callback should NOT have been invoked
-    assert_eq!(error_count.load(Ordering::SeqCst), 0);
 
     shutdown_tx.send(true).unwrap();
     tokio::time::timeout(Duration::from_secs(1), loop_handle)

@@ -4,7 +4,7 @@
 [profile.default]
 # Limit test parallelism to avoid Docker resource contention
 # Testcontainers can overwhelm Docker when too many tests start containers simultaneously
-test-threads = 4
+test-threads = 8
 
 # Increase timeouts for container startup
 # Containers (Postgres, Keycloak, Vault) need time to initialize

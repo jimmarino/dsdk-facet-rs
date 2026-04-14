@@ -36,8 +36,9 @@ pub const DEFAULT_REFRESH_API_PORT: u16 = 8082;
 /// Default bind address (0.0.0.0 - listen on all interfaces)
 pub const DEFAULT_BIND_ADDRESS: IpAddr = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
 
-/// Default name for the Vault signing key
-pub const DEFAULT_VAULT_SIGNING_KEY_NAME: &str = "siglet-signing-key";
+/// Default name for the Vault transit signing key used for access tokens.
+/// Derived from `{ACCESS_TOKEN_SIGNING_KEY_PREFIX}-{SIGLET_PC_ID}` = `"signing-siglet"`.
+pub const DEFAULT_VAULT_SIGNING_KEY_NAME: &str = "signing-siglet";
 
 /// Minimum server secret length in bytes (128 bits)
 pub const MIN_SERVER_SECRET_BYTES: usize = 16;

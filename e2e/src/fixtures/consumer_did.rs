@@ -18,31 +18,49 @@ static CONSUMER_DID: OnceCell<ConsumerDidDeployment> = OnceCell::const_new();
 
 /// Key material for the consumer DID, provisioned by `setup.sh` and stored in the cluster.
 pub struct ConsumerDidDeployment {
-    /// PKCS#8 DER-encoded private key for `did:web:consumer#key-1`.
-    /// Use with `LocalJwtGenerator` to sign tokens as the consumer.
-    pub private_key_der: Vec<u8>,
+    /// The JWT `kid` that identifies the consumer's per-PC Vault transit signing key.
+    /// Matches the verification method fragment in the consumer DID document.
+    pub pc_signing_key_id: String,
+
+    /// The multibase-encoded public key of the consumer's per-PC Vault transit signing key.
+    /// Used for pre-flight DID document verification.
+    pub pc_signing_key_multibase: String,
 }
 
-/// Returns the consumer DID doc provisioned by `setup.sh`.
+/// Returns the consumer DID deployment info provisioned by `setup.sh`.
 ///
-/// Reads the PKCS#8 DER private key from the `consumer-did-private-key` Secret.
-/// The corresponding public key is already published in the consumer-did ConfigMap
-/// (served by nginx at `http://consumer/.well-known/did.json`) — both were written
-/// by `setup.sh` and are stable for the lifetime of the cluster.
+/// Reads the per-PC signing key metadata from the `consumer-pc-signing-key` Secret,
+/// which is populated by `configure-vault.sh` when it creates the transit key
+/// `client-signing-test-participant-context` in Vault.
+///
+/// The corresponding public key is published in the consumer DID document
+/// (served at `http://consumer/.well-known/did.json`) — both were written by
+/// `setup.sh` and are stable for the lifetime of the cluster.
 ///
 /// This function is idempotent and thread-safe.
 pub async fn ensure_consumer_did() -> Result<&'static ConsumerDidDeployment> {
     CONSUMER_DID
         .get_or_try_init(|| async {
-            crate::utils::verify_e2e_setup().await?;
+            verify_e2e_setup().await?;
 
-            let private_key_der = read_secret_bytes(E2E_NAMESPACE, "consumer-did-private-key", "privateKeyDer")
+            let key_id_bytes = read_secret_bytes(E2E_NAMESPACE, "consumer-pc-signing-key", "keyId").context(
+                "Failed to read consumer PC signing key ID. \
+                     Run 'cd e2e && ./scripts/setup.sh' to provision the consumer DID server.",
+            )?;
+            let pc_signing_key_id = String::from_utf8(key_id_bytes).context("Non-UTF8 key ID in secret")?;
+
+            let multibase_bytes = read_secret_bytes(E2E_NAMESPACE, "consumer-pc-signing-key", "publicKeyMultibase")
                 .context(
-                    "Failed to read consumer DID private key. \
+                    "Failed to read consumer PC signing key public key. \
                      Run 'cd e2e && ./scripts/setup.sh' to provision the consumer DID server.",
                 )?;
+            let pc_signing_key_multibase =
+                String::from_utf8(multibase_bytes).context("Non-UTF8 public key multibase in secret")?;
 
-            Ok(ConsumerDidDeployment { private_key_der })
+            Ok(ConsumerDidDeployment {
+                pc_signing_key_id,
+                pc_signing_key_multibase,
+            })
         })
         .await
 }

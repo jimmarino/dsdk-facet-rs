@@ -15,142 +15,63 @@ use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+// ============================================================================
+// did_web_to_url — share one resolver per group to avoid repeated reqwest::Client init
+// ============================================================================
+
 #[test]
-fn test_did_web_to_url_basic_domain() {
+fn test_did_web_to_url_variants() {
     let resolver = DidWebVerificationKeyResolver::builder().build();
 
-    let result = resolver.did_web_to_url("did:web:example.com").unwrap();
-    assert_eq!(result, "https://example.com/.well-known/did.json");
-}
-
-#[test]
-fn test_did_web_to_url_with_path() {
-    let resolver = DidWebVerificationKeyResolver::builder().build();
-
-    let result = resolver.did_web_to_url("did:web:example.com:user:alice").unwrap();
-    assert_eq!(result, "https://example.com/user/alice/did.json");
-}
-
-#[test]
-fn test_did_web_to_url_with_port() {
-    let resolver = DidWebVerificationKeyResolver::builder().build();
-
-    let result = resolver.did_web_to_url("did:web:example.com%3A3000").unwrap();
-    assert_eq!(result, "https://example.com:3000/.well-known/did.json");
-}
-
-#[test]
-fn test_did_web_to_url_with_port_lowercase() {
-    let resolver = DidWebVerificationKeyResolver::builder().build();
-
-    let result = resolver.did_web_to_url("did:web:example.com%3a8080").unwrap();
-    assert_eq!(result, "https://example.com:8080/.well-known/did.json");
-}
-
-#[test]
-fn test_did_web_to_url_with_port_and_path() {
-    let resolver = DidWebVerificationKeyResolver::builder().build();
-
-    let result = resolver.did_web_to_url("did:web:example.com%3A3000:user:bob").unwrap();
-    assert_eq!(result, "https://example.com:3000/user/bob/did.json");
-}
-
-#[test]
-fn test_did_web_to_url_http_protocol() {
-    let resolver = DidWebVerificationKeyResolver::builder().use_https(false).build();
-
-    // Port must be percent-encoded in did:web format
-    let result = resolver.did_web_to_url("did:web:localhost%3A3000").unwrap();
-    assert_eq!(result, "http://localhost:3000/.well-known/did.json");
-}
-
-#[test]
-fn test_did_web_to_url_invalid_format_no_prefix() {
-    let resolver = DidWebVerificationKeyResolver::builder().build();
-
-    let result = resolver.did_web_to_url("example.com");
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        JwtVerificationError::VerificationFailed(_)
-    ));
-}
-
-#[test]
-fn test_did_web_to_url_with_empty_path_segment() {
-    let resolver = DidWebVerificationKeyResolver::builder().build();
-
-    // Multiple colons create empty path segments
-    let result = resolver.did_web_to_url("did:web:example.com::user").unwrap();
-    assert_eq!(result, "https://example.com//user/did.json");
-}
-
-#[tokio::test]
-async fn test_fetch_did_document_success() {
-    let mock_server = MockServer::start().await;
-    let did_doc = create_did_document(
-        "did:web:example.com",
-        "did:web:example.com#key-1",
-        &valid_ed25519_multibase(),
+    assert_eq!(
+        resolver.did_web_to_url("did:web:example.com").unwrap(),
+        "https://example.com/.well-known/did.json"
     );
-
-    Mock::given(method("GET"))
-        .and(path("/.well-known/did.json"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&did_doc))
-        .mount(&mock_server)
-        .await;
-
-    let resolver = DidWebVerificationKeyResolver::builder().build();
-    let url = format!("{}/.well-known/did.json", mock_server.uri());
-    let result = resolver.fetch_did_document(&url).await;
-
-    assert!(result.is_ok());
-    let doc = result.unwrap();
-    assert!(doc.verification_method.is_some());
-}
-
-#[tokio::test]
-async fn test_fetch_did_document_not_found() {
-    let mock_server = MockServer::start().await;
-
-    Mock::given(method("GET"))
-        .and(path("/.well-known/did.json"))
-        .respond_with(ResponseTemplate::new(404))
-        .mount(&mock_server)
-        .await;
-
-    let resolver = DidWebVerificationKeyResolver::builder().build();
-    let url = format!("{}/.well-known/did.json", mock_server.uri());
-    let result = resolver.fetch_did_document(&url).await;
-
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        JwtVerificationError::VerificationFailed(msg) => {
-            assert!(msg.contains("404"));
-        }
-        _ => panic!("Expected VerificationFailed error"),
-    }
-}
-
-#[tokio::test]
-async fn test_fetch_did_document_invalid_json() {
-    let mock_server = MockServer::start().await;
-
-    Mock::given(method("GET"))
-        .and(path("/.well-known/did.json"))
-        .respond_with(ResponseTemplate::new(200).set_body_string("not valid json"))
-        .mount(&mock_server)
-        .await;
-
-    let resolver = DidWebVerificationKeyResolver::builder().build();
-    let url = format!("{}/.well-known/did.json", mock_server.uri());
-    let result = resolver.fetch_did_document(&url).await;
-
-    assert!(result.is_err());
+    assert_eq!(
+        resolver.did_web_to_url("did:web:example.com:user:alice").unwrap(),
+        "https://example.com/user/alice/did.json"
+    );
+    assert_eq!(
+        resolver.did_web_to_url("did:web:example.com%3A3000").unwrap(),
+        "https://example.com:3000/.well-known/did.json"
+    );
+    assert_eq!(
+        resolver.did_web_to_url("did:web:example.com%3a8080").unwrap(),
+        "https://example.com:8080/.well-known/did.json"
+    );
+    assert_eq!(
+        resolver.did_web_to_url("did:web:example.com%3A3000:user:bob").unwrap(),
+        "https://example.com:3000/user/bob/did.json"
+    );
+    assert_eq!(
+        resolver.did_web_to_url("did:web:example.com::user").unwrap(),
+        "https://example.com//user/did.json"
+    );
 }
 
 #[test]
-fn test_find_verification_method_by_fragment_suffix() {
+fn test_did_web_to_url_edge_cases() {
+    // Invalid format: no did:web prefix
+    let resolver = DidWebVerificationKeyResolver::builder().build();
+    assert!(matches!(
+        resolver.did_web_to_url("example.com"),
+        Err(JwtVerificationError::VerificationFailed(_))
+    ));
+
+    // HTTP protocol (use_https = false)
+    let http_resolver = DidWebVerificationKeyResolver::builder().use_https(false).build();
+    assert_eq!(
+        http_resolver.did_web_to_url("did:web:localhost%3A3000").unwrap(),
+        "http://localhost:3000/.well-known/did.json"
+    );
+}
+
+// ============================================================================
+// find_verification_method — pure data, no resolver or HTTP
+// ============================================================================
+
+#[test]
+fn test_find_verification_method_scenarios() {
     let did_doc = serde_json::from_value::<crate::jwt::DidDocument>(create_did_document(
         "did:web:example.com",
         "did:web:example.com#key-1",
@@ -158,13 +79,11 @@ fn test_find_verification_method_by_fragment_suffix() {
     ))
     .unwrap();
 
-    let result = DidWebVerificationKeyResolver::find_verification_method(&did_doc, "key-1");
-    assert!(result.is_ok());
-}
+    // Fragment suffix match
+    assert!(DidWebVerificationKeyResolver::find_verification_method(&did_doc, "key-1").is_ok());
 
-#[test]
-fn test_find_verification_method_by_exact_match() {
-    let did_doc = serde_json::from_value::<crate::jwt::DidDocument>(json!({
+    // Exact match on bare id
+    let did_doc_bare = serde_json::from_value::<crate::jwt::DidDocument>(json!({
         "@context": "https://www.w3.org/ns/did/v1",
         "id": "did:web:example.com",
         "verificationMethod": [{
@@ -175,50 +94,33 @@ fn test_find_verification_method_by_exact_match() {
         }]
     }))
     .unwrap();
+    assert!(DidWebVerificationKeyResolver::find_verification_method(&did_doc_bare, "key-1").is_ok());
 
-    let result = DidWebVerificationKeyResolver::find_verification_method(&did_doc, "key-1");
-    assert!(result.is_ok());
-}
+    // Not found
+    assert!(matches!(
+        DidWebVerificationKeyResolver::find_verification_method(&did_doc, "key-2"),
+        Err(JwtVerificationError::VerificationFailed(msg)) if msg.contains("not found")
+    ));
 
-#[test]
-fn test_find_verification_method_not_found() {
-    let did_doc = serde_json::from_value::<crate::jwt::DidDocument>(create_did_document(
-        "did:web:example.com",
-        "did:web:example.com#key-1",
-        &valid_ed25519_multibase(),
-    ))
-    .unwrap();
-
-    let result = DidWebVerificationKeyResolver::find_verification_method(&did_doc, "key-2");
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        JwtVerificationError::VerificationFailed(msg) => {
-            assert!(msg.contains("not found"));
-        }
-        _ => panic!("Expected VerificationFailed error"),
-    }
-}
-
-#[test]
-fn test_find_verification_method_no_methods() {
-    let did_doc = serde_json::from_value::<crate::jwt::DidDocument>(json!({
+    // No verification methods in document
+    let did_doc_empty = serde_json::from_value::<crate::jwt::DidDocument>(json!({
         "@context": "https://www.w3.org/ns/did/v1",
         "id": "did:web:example.com"
     }))
     .unwrap();
-
-    let result = DidWebVerificationKeyResolver::find_verification_method(&did_doc, "key-1");
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        JwtVerificationError::VerificationFailed(msg) => {
-            assert!(msg.contains("no verification methods"));
-        }
-        _ => panic!("Expected VerificationFailed error"),
-    }
+    assert!(matches!(
+        DidWebVerificationKeyResolver::find_verification_method(&did_doc_empty, "key-1"),
+        Err(JwtVerificationError::VerificationFailed(msg)) if msg.contains("no verification methods")
+    ));
 }
 
+// ============================================================================
+// verification_method_to_key_material — pure data, no resolver or HTTP
+// ============================================================================
+
 #[test]
-fn test_verification_method_to_key_material_multibase() {
+fn test_verification_method_to_key_material_scenarios() {
+    // Valid multibase Ed25519 key
     let vm = serde_json::from_value::<crate::jwt::VerificationMethod>(json!({
         "id": "did:web:example.com#key-1",
         "type": "Ed25519VerificationKey2020",
@@ -226,224 +128,166 @@ fn test_verification_method_to_key_material_multibase() {
         "publicKeyMultibase": valid_ed25519_multibase()
     }))
     .unwrap();
+    let km = DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "key-1").unwrap();
+    assert_eq!(km.kid, "key-1");
+    assert_eq!(km.key.len(), 32); // raw 32-byte Ed25519 public key
 
-    let result =
-        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "did:web:example.com", "key-1");
-
-    assert!(result.is_ok());
-    let key_material = result.unwrap();
-    assert_eq!(key_material.iss, "did:web:example.com");
-    assert_eq!(key_material.kid, "key-1");
-    // Raw 32-byte Ed25519 public key (jsonwebtoken v10 DecodingKey::from_ed_der expects raw bytes)
-    assert_eq!(key_material.key.len(), 32);
-}
-
-#[test]
-fn test_verification_method_to_key_material_invalid_multibase() {
-    let vm = serde_json::from_value::<crate::jwt::VerificationMethod>(json!({
+    // Invalid multibase encoding
+    let vm_bad = serde_json::from_value::<crate::jwt::VerificationMethod>(json!({
         "id": "did:web:example.com#key-1",
         "type": "Ed25519VerificationKey2020",
         "controller": "did:web:example.com",
         "publicKeyMultibase": "invalid-multibase-key"
     }))
     .unwrap();
+    assert!(DidWebVerificationKeyResolver::verification_method_to_key_material(&vm_bad, "key-1").is_err());
 
-    let result =
-        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "did:web:example.com", "key-1");
-
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_verification_method_to_key_material_jwk_unsupported() {
-    let vm = serde_json::from_value::<crate::jwt::VerificationMethod>(json!({
+    // JWK format — not yet supported
+    let vm_jwk = serde_json::from_value::<crate::jwt::VerificationMethod>(json!({
         "id": "did:web:example.com#key-1",
         "type": "JsonWebKey2020",
         "controller": "did:web:example.com",
-        "publicKeyJwk": {
-            "kty": "OKP",
-            "crv": "Ed25519",
-            "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
-        }
+        "publicKeyJwk": { "kty": "OKP", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo" }
     }))
     .unwrap();
+    assert!(matches!(
+        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm_jwk, "key-1"),
+        Err(JwtVerificationError::VerificationFailed(msg)) if msg.contains("not yet supported")
+    ));
 
-    let result =
-        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "did:web:example.com", "key-1");
-
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        JwtVerificationError::VerificationFailed(msg) => {
-            assert!(msg.contains("not yet supported"));
-        }
-        _ => panic!("Expected VerificationFailed error"),
-    }
-}
-
-#[test]
-fn test_verification_method_to_key_material_no_key() {
-    let vm = serde_json::from_value::<crate::jwt::VerificationMethod>(json!({
+    // No key present
+    let vm_none = serde_json::from_value::<crate::jwt::VerificationMethod>(json!({
         "id": "did:web:example.com#key-1",
         "type": "Ed25519VerificationKey2020",
         "controller": "did:web:example.com"
     }))
     .unwrap();
+    assert!(matches!(
+        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm_none, "key-1"),
+        Err(JwtVerificationError::VerificationFailed(msg)) if msg.contains("No supported public key format")
+    ));
+}
 
-    let result =
-        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "did:web:example.com", "key-1");
+// ============================================================================
+// fetch_did_document — one MockServer for all HTTP response scenarios.
+// Scoped mounts prevent overlapping matchers on the same path across scenarios.
+// ============================================================================
 
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        JwtVerificationError::VerificationFailed(msg) => {
-            assert!(msg.contains("No supported public key format"));
-        }
-        _ => panic!("Expected VerificationFailed error"),
+#[tokio::test]
+async fn test_fetch_did_document_scenarios() {
+    let mock_server = MockServer::start().await;
+    let resolver = DidWebVerificationKeyResolver::builder().build();
+    let url = format!("{}/.well-known/did.json", mock_server.uri());
+
+    // Scenario: 200 with valid DID document
+    {
+        let did_doc = create_did_document(
+            "did:web:example.com",
+            "did:web:example.com#key-1",
+            &valid_ed25519_multibase(),
+        );
+        let _guard = Mock::given(method("GET"))
+            .and(path("/.well-known/did.json"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&did_doc))
+            .expect(1)
+            .mount_as_scoped(&mock_server)
+            .await;
+        let result = resolver.fetch_did_document(&url).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().verification_method.is_some());
+    }
+
+    // Scenario: 404 not found
+    {
+        let _guard = Mock::given(method("GET"))
+            .and(path("/.well-known/did.json"))
+            .respond_with(ResponseTemplate::new(404))
+            .expect(1)
+            .mount_as_scoped(&mock_server)
+            .await;
+        assert!(matches!(
+            resolver.fetch_did_document(&url).await,
+            Err(JwtVerificationError::VerificationFailed(msg)) if msg.contains("404")
+        ));
+    }
+
+    // Scenario: 200 with invalid JSON body
+    {
+        let _guard = Mock::given(method("GET"))
+            .and(path("/.well-known/did.json"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("not valid json"))
+            .expect(1)
+            .mount_as_scoped(&mock_server)
+            .await;
+        assert!(resolver.fetch_did_document(&url).await.is_err());
     }
 }
 
+// ============================================================================
+// resolve_key — one MockServer for all scenarios.
+// Permanent mounts are used for paths that don't conflict; scoped mounts for
+// scenarios that share the same path but need different responses.
+// ============================================================================
+
 #[tokio::test]
-async fn test_resolve_key_full_did_url() {
+async fn test_resolve_key_scenarios() {
     let mock_server = MockServer::start().await;
-    let did = format!("did:web:{}", mock_server.address().to_string().replace(":", "%3A"));
-    let key_id = format!("{}#key-1", did);
-
-    let did_doc = create_did_document(&did, &key_id, &valid_ed25519_multibase());
-
-    Mock::given(method("GET"))
-        .and(path("/.well-known/did.json"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&did_doc))
-        .mount(&mock_server)
-        .await;
-
     let resolver = DidWebVerificationKeyResolver::builder().use_https(false).build();
 
-    let result = resolver.resolve_key(&did, &key_id).await;
-
-    assert!(result.is_ok());
-    let key_material = result.unwrap();
-    assert_eq!(key_material.iss, did);
-}
-
-#[tokio::test]
-async fn test_resolve_key_fragment_only_kid() {
-    let mock_server = MockServer::start().await;
-    let did = format!("did:web:{}", mock_server.address().to_string().replace(":", "%3A"));
-    let key_id = format!("{}#key-1", did);
-
-    let did_doc = create_did_document(&did, &key_id, &valid_ed25519_multibase());
-
-    Mock::given(method("GET"))
-        .and(path("/.well-known/did.json"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&did_doc))
-        .mount(&mock_server)
-        .await;
-
-    let resolver = DidWebVerificationKeyResolver::builder().use_https(false).build();
-
-    let result = resolver.resolve_key(&did, "#key-1").await;
-
-    assert!(result.is_ok());
-}
-
-#[tokio::test]
-async fn test_resolve_key_bare_fragment_kid() {
-    let mock_server = MockServer::start().await;
-    let did = format!("did:web:{}", mock_server.address().to_string().replace(":", "%3A"));
-    let key_id = format!("{}#key-1", did);
-
-    let did_doc = create_did_document(&did, &key_id, &valid_ed25519_multibase());
-
-    Mock::given(method("GET"))
-        .and(path("/.well-known/did.json"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&did_doc))
-        .mount(&mock_server)
-        .await;
-
-    let resolver = DidWebVerificationKeyResolver::builder().use_https(false).build();
-
-    let result = resolver.resolve_key(&did, "key-1").await;
-
-    assert!(result.is_ok());
-}
-
-#[tokio::test]
-async fn test_resolve_key_with_path() {
-    let mock_server = MockServer::start().await;
     let host = mock_server.address().to_string().replace(":", "%3A");
-    let did = format!("did:web:{}:users:alice", host);
-    let key_id = format!("{}#signing-key", did);
-
+    let did = format!("did:web:{}", host);
+    let key_id = format!("{}#key-1", did);
     let did_doc = create_did_document(&did, &key_id, &valid_ed25519_multibase());
 
+    // Mount /.well-known/did.json once — serves all well-known scenarios below.
+    Mock::given(method("GET"))
+        .and(path("/.well-known/did.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&did_doc))
+        .mount(&mock_server)
+        .await;
+
+    // Mount /users/alice/did.json for the with-path scenario (non-conflicting path).
+    let did_alice = format!("did:web:{}:users:alice", host);
+    let kid_alice = format!("{}#signing-key", did_alice);
     Mock::given(method("GET"))
         .and(path("/users/alice/did.json"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&did_doc))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&create_did_document(
+            &did_alice,
+            &kid_alice,
+            &valid_ed25519_multibase(),
+        )))
         .mount(&mock_server)
         .await;
 
-    let resolver = DidWebVerificationKeyResolver::builder().use_https(false).build();
+    // Scenario: full DID URL as kid
+    assert!(resolver.resolve_key(&did, &key_id).await.is_ok());
 
-    let result = resolver.resolve_key(&did, "signing-key").await;
+    // Scenario: kid with leading # prefix
+    assert!(resolver.resolve_key(&did, "#key-1").await.is_ok());
 
-    assert!(result.is_ok());
-}
+    // Scenario: bare fragment (no # prefix)
+    assert!(resolver.resolve_key(&did, "key-1").await.is_ok());
 
-#[tokio::test]
-async fn test_resolve_key_missing_fragment() {
-    let mock_server = MockServer::start().await;
-    let did = format!("did:web:{}", mock_server.address().to_string().replace(":", "%3A"));
+    // Scenario: DID with path component → /users/alice/did.json
+    assert!(resolver.resolve_key(&did_alice, "signing-key").await.is_ok());
 
-    let resolver = DidWebVerificationKeyResolver::builder().use_https(false).build();
+    // Scenario: HTTPS resolver fails against HTTP mock server
+    let https_resolver = DidWebVerificationKeyResolver::builder().use_https(true).build();
+    assert!(https_resolver.resolve_key(&did, "key-1").await.is_err());
 
-    // Pass kid without fragment (full DID URL without #)
-    let result = resolver.resolve_key(&did, &did).await;
+    // Scenario: kid with no fragment → error before HTTP call
+    assert!(matches!(
+        resolver.resolve_key(&did, &did).await,
+        Err(JwtVerificationError::VerificationFailed(msg)) if msg.contains("must include fragment")
+    ));
 
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        JwtVerificationError::VerificationFailed(msg) => {
-            assert!(msg.contains("must include fragment"));
-        }
-        _ => panic!("Expected VerificationFailed error"),
-    }
-}
-
-#[tokio::test]
-async fn test_resolve_key_http_vs_https() {
-    let mock_server = MockServer::start().await;
-    let did = format!("did:web:{}", mock_server.address().to_string().replace(":", "%3A"));
-    let key_id = format!("{}#key-1", did);
-
-    let did_doc = create_did_document(&did, &key_id, &valid_ed25519_multibase());
-
-    Mock::given(method("GET"))
-        .and(path("/.well-known/did.json"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&did_doc))
-        .mount(&mock_server)
-        .await;
-
-    // Test with HTTP (should work with mock server)
-    let resolver_http = DidWebVerificationKeyResolver::builder().use_https(false).build();
-
-    let result = resolver_http.resolve_key(&did, "key-1").await;
-    assert!(result.is_ok());
-
-    // Test with HTTPS (will fail because mock server uses HTTP)
-    let resolver_https = DidWebVerificationKeyResolver::builder().use_https(true).build();
-
-    let result = resolver_https.resolve_key(&did, "key-1").await;
-    assert!(result.is_err());
-}
-
-#[tokio::test]
-async fn test_resolve_key_network_error() {
-    // Use a server that doesn't exist
-    let resolver = DidWebVerificationKeyResolver::builder().build();
-
-    let result = resolver
-        .resolve_key("did:web:nonexistent.invalid.domain.test", "key-1")
-        .await;
-
-    assert!(result.is_err());
+    // Scenario: non-existent host → network error
+    assert!(
+        resolver
+            .resolve_key("did:web:nonexistent.invalid.domain.test", "key-1")
+            .await
+            .is_err()
+    );
 }
 
 /// Verifies the full Ed25519 sign→DID-document-roundtrip→verify path used by the e2e test.
@@ -460,7 +304,7 @@ async fn test_resolve_key_network_error() {
 #[tokio::test]
 async fn test_did_web_sign_verify_roundtrip_via_multibase() {
     use crate::context::ParticipantContext;
-    use crate::jwt::jwtutils::{StaticSigningKeyResolver, generate_ed25519_keypair_der};
+    use crate::jwt::test_fixtures::{StaticSigningKeyResolver, generate_ed25519_keypair_der};
     use crate::jwt::{
         DidWebVerificationKeyResolver, JwtGenerator, JwtVerifier, KeyFormat, LocalJwtGenerator, LocalJwtVerifier,
         SigningAlgorithm, TokenClaims, VerificationMethod,
@@ -481,7 +325,6 @@ async fn test_did_web_sign_verify_roundtrip_via_multibase() {
         StaticSigningKeyResolver::builder()
             .key(keypair.private_key)
             .key_format(KeyFormat::DER)
-            .iss("did:web:consumer")
             .kid("did:web:consumer#key-1")
             .build(),
     );
@@ -514,16 +357,13 @@ async fn test_did_web_sign_verify_roundtrip_via_multibase() {
     }))
     .expect("VerificationMethod deserialization");
 
-    let key_material = DidWebVerificationKeyResolver::verification_method_to_key_material(
-        &vm,
-        "did:web:consumer",
-        "did:web:consumer#key-1",
-    )
-    .expect("key material extraction");
+    let key_material =
+        DidWebVerificationKeyResolver::verification_method_to_key_material(&vm, "did:web:consumer#key-1")
+            .expect("key material extraction");
 
     // Step 5: verify the JWT
     let static_resolver = Arc::new(
-        crate::jwt::jwtutils::StaticVerificationKeyResolver::builder()
+        crate::jwt::test_fixtures::StaticVerificationKeyResolver::builder()
             .key(key_material.key)
             .key_format(key_material.key_format)
             .build(),
@@ -542,14 +382,16 @@ async fn test_did_web_sign_verify_roundtrip_via_multibase() {
     assert_eq!(result.unwrap().sub, "did:web:consumer");
 }
 
-// Test helper to create a valid Ed25519 public key in multibase format
+// ============================================================================
+// Test helpers
+// ============================================================================
+
 fn valid_ed25519_multibase() -> String {
     // z prefix indicates base58btc encoding of Ed25519 public key
     // This is a valid 32-byte Ed25519 public key
     "z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK".to_string()
 }
 
-// Test helper to create a mock DID document
 fn create_did_document(did: &str, key_id: &str, multibase_key: &str) -> serde_json::Value {
     json!({
         "@context": "https://www.w3.org/ns/did/v1",

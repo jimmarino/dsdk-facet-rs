@@ -14,3 +14,4 @@
 
 pub mod consumer_did;
 pub mod siglet;
+pub mod vault;

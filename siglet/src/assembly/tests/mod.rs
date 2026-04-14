@@ -12,7 +12,7 @@
 
 #![allow(clippy::unwrap_used)]
 
-use crate::assembly::{create_siglet_handler, create_token_manager, generate_server_secret};
+use crate::assembly::{SIGLET_PC_ID, create_siglet_handler, create_token_manager, generate_server_secret};
 use crate::config::SigletConfig;
 use async_trait::async_trait;
 use dsdk_facet_core::context::ParticipantContext;
@@ -189,6 +189,7 @@ fn test_create_token_manager_with_default_issuer() {
         Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
         store,
         Arc::new(NoOpJwkSetProvider) as Arc<dyn JwkSetProvider>,
+        SIGLET_PC_ID,
     );
 
     // Verify manager is created
@@ -212,6 +213,7 @@ fn test_create_token_manager_with_custom_issuer() {
         Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
         store,
         Arc::new(NoOpJwkSetProvider) as Arc<dyn JwkSetProvider>,
+        SIGLET_PC_ID,
     );
 
     assert!(Arc::strong_count(&manager) >= 1);
@@ -234,6 +236,7 @@ fn test_create_token_manager_with_custom_refresh_endpoint() {
         Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
         store,
         Arc::new(NoOpJwkSetProvider) as Arc<dyn JwkSetProvider>,
+        SIGLET_PC_ID,
     );
 
     assert!(Arc::strong_count(&manager) >= 1);
@@ -258,6 +261,7 @@ fn test_create_token_manager_with_default_refresh_endpoint() {
         Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
         store,
         Arc::new(NoOpJwkSetProvider) as Arc<dyn JwkSetProvider>,
+        SIGLET_PC_ID,
     );
 
     assert!(Arc::strong_count(&manager) >= 1);
@@ -281,6 +285,7 @@ fn test_create_token_manager_with_different_secret_lengths() {
         Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
         store.clone(),
         Arc::new(NoOpJwkSetProvider) as Arc<dyn JwkSetProvider>,
+        SIGLET_PC_ID,
     );
     assert!(Arc::strong_count(&manager32) >= 1);
 
@@ -294,6 +299,7 @@ fn test_create_token_manager_with_different_secret_lengths() {
         Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
         store,
         Arc::new(NoOpJwkSetProvider) as Arc<dyn JwkSetProvider>,
+        SIGLET_PC_ID,
     );
     assert!(Arc::strong_count(&manager64) >= 1);
 }
@@ -313,6 +319,7 @@ fn test_create_token_manager_returns_arc() {
         Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
         store,
         Arc::new(NoOpJwkSetProvider) as Arc<dyn JwkSetProvider>,
+        SIGLET_PC_ID,
     );
 
     // Verify it's Arc-wrapped
@@ -344,6 +351,7 @@ fn test_secret_generation_and_token_manager_integration() {
         Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
         store,
         Arc::new(NoOpJwkSetProvider) as Arc<dyn JwkSetProvider>,
+        SIGLET_PC_ID,
     );
     assert!(Arc::strong_count(&manager) >= 1);
 }
@@ -372,6 +380,7 @@ fn test_hex_secret_generation_and_token_manager_integration() {
         Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
         store,
         Arc::new(NoOpJwkSetProvider) as Arc<dyn JwkSetProvider>,
+        SIGLET_PC_ID,
     );
     assert!(Arc::strong_count(&manager) >= 1);
 }
@@ -393,6 +402,7 @@ fn test_token_manager_and_handler_integration() {
         Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>,
         renewable_store,
         Arc::new(NoOpJwkSetProvider) as Arc<dyn JwkSetProvider>,
+        SIGLET_PC_ID,
     );
     let token_store = Arc::new(MemoryTokenStore::default());
 

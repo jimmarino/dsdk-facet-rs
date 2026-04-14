@@ -35,15 +35,15 @@ vault_cmd auth enable kubernetes 2>/dev/null || echo "Kubernetes auth already en
 # Get Kubernetes host
 K8S_HOST="https://kubernetes.default.svc:443"
 
-# Get service account token and CA cert from the Vault pod itself
+# Configure Kubernetes auth backend using Vault's own auto-rotating SA token.
+# Omitting token_reviewer_jwt so Vault uses its mounted projected SA token (disable_local_ca_jwt=false),
+# which Kubernetes auto-rotates — avoids the stale-token 403 that occurs when a captured token expires.
 echo "Configuring Kubernetes auth backend..."
 kubectl exec -n "${NAMESPACE}" "${VAULT_POD}" -- sh -c "
 export VAULT_TOKEN=${VAULT_TOKEN}
-export SA_JWT_TOKEN=\$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
 export SA_CA_CRT=\$(cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
 
 vault write auth/kubernetes/config \
-    token_reviewer_jwt=\"\${SA_JWT_TOKEN}\" \
     kubernetes_host=\"${K8S_HOST}\" \
     kubernetes_ca_cert=\"\${SA_CA_CRT}\" \
     disable_local_ca_jwt=false
@@ -120,9 +120,14 @@ vault_cmd secrets list | grep -q "secret/" && echo "KV v2 engine already enabled
 echo "Enabling Transit secrets engine..."
 vault_cmd secrets enable transit 2>/dev/null && echo "Transit engine enabled" || echo "Transit engine already enabled"
 
-# Create a signing key for Siglet
+# Create the access-token signing key for Siglet.
+# Key name = {ACCESS_TOKEN_SIGNING_KEY_PREFIX}-{SIGLET_PC_ID} = "signing-siglet".
 echo "Creating signing key for Siglet..."
-vault_cmd write -f transit/keys/siglet-signing-key type=ed25519 2>/dev/null && echo "Signing key created" || echo "Signing key already exists"
+vault_cmd write -f transit/keys/signing-siglet type=ed25519 2>/dev/null && echo "Signing key created" || echo "Signing key already exists"
+
+# Note: the consumer PC signing transit key and its Kubernetes Secret are provisioned
+# by setup-consumer-did.sh (idempotently), so they work with both `make setup` and
+# `make test-fast` / `make setup-consumer-did`.
 
 # Update test policy to include Transit access
 echo "Updating test policy with Transit access..."
@@ -178,6 +183,6 @@ echo "  - test-role-sa2 (SA: test-app-sa2, TTL: 1h)"
 echo "  - test-role-short-ttl (SA: test-app-sa, TTL: 60s)"
 echo "  - siglet-role (SA: siglet-sa, TTL: 1h)"
 echo ""
-echo "Transit engine enabled with signing key: siglet-signing-key"
+echo "Transit engine enabled with signing key: signing-siglet"
 echo "Root token: ${VAULT_TOKEN}"
 echo ""

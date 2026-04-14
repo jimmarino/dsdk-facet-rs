@@ -16,19 +16,19 @@ mod tests;
 pub mod did;
 pub mod generator;
 pub mod jwk;
-pub mod jwtutils;
 pub mod resolver;
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod test_fixtures;
 pub mod verifier;
 
 pub use did::DidWebVerificationKeyResolver;
 #[cfg(test)]
 pub(crate) use did::{DidDocument, VerificationMethod};
-pub use generator::{LocalJwtGenerator, VaultJwtGenerator};
+pub use generator::VaultJwtGenerator;
 pub use jwk::{Jwk, JwkKeyOperation, JwkKeyType, JwkPublicKeyUse, JwkSet};
-pub use resolver::{
-    SigningKeyRecord, StaticSigningKeyResolver, StaticVerificationKeyResolver, VaultSigningKeyResolver,
-    VaultVerificationKeyResolver,
-};
+pub use resolver::VaultVerificationKeyResolver;
+#[cfg(any(test, feature = "test-fixtures"))]
+pub use test_fixtures::{LocalJwtGenerator, StaticSigningKeyResolver, StaticVerificationKeyResolver};
 pub use verifier::LocalJwtVerifier;
 
 use crate::context::ParticipantContext;
@@ -150,9 +150,6 @@ pub struct KeyMaterial {
     key_format: KeyFormat,
 
     pub key: Vec<u8>,
-
-    #[builder(into)]
-    pub iss: String,
 
     #[builder(into)]
     pub kid: String,

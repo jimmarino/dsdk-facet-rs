@@ -17,49 +17,102 @@ NAMESPACE="${E2E_NAMESPACE:-vault-e2e-test}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MANIFESTS_DIR="$(cd "${SCRIPT_DIR}/../manifests" && pwd)"
 
+VAULT_TOKEN="root"
+VAULT_POD=$(kubectl get pod -n "${NAMESPACE}" -l app=vault -o jsonpath='{.items[0].metadata.name}')
+
+vault_cmd() {
+    kubectl exec -n "${NAMESPACE}" "${VAULT_POD}" -- env VAULT_TOKEN="${VAULT_TOKEN}" vault "$@"
+}
+
 echo "======================================"
 echo "Setting up consumer DID server"
 echo "======================================"
 echo ""
 
-# Resolve the public key multibase to use for the DID document.
-# If the Secret already exists, reuse its public key so the private key stays stable.
-# If not, generate a fresh Ed25519 keypair and store it in the Secret.
-if kubectl get secret consumer-did-private-key -n "${NAMESPACE}" &>/dev/null; then
-    echo "consumer-did-private-key secret already exists — reusing existing keypair"
-    PUBLIC_KEY_MULTIBASE=$(kubectl get secret consumer-did-private-key \
+# Provision (or reuse) the per-PC Vault transit signing key and its Kubernetes Secret.
+# This is idempotent — if the secret already exists we reuse it; otherwise we create
+# the transit key and export the public key. Running this here (rather than only in
+# configure-vault.sh) makes `make test-fast` and `make setup-consumer-did` self-contained.
+
+TRANSIT_KEY_NAME="client-signing-test-participant-context"
+KEY_ID="client-signing-test-participant-context-1"
+
+# Vault runs in dev mode (in-memory storage): the transit key is wiped on every
+# Vault pod restart, even if the Kubernetes secret from a prior run still exists.
+# Check the transit key in Vault directly — the K8s secret alone is not sufficient.
+TRANSIT_KEY_EXISTS=false
+if vault_cmd read -format=json "transit/keys/${TRANSIT_KEY_NAME}" >/dev/null 2>&1; then
+    TRANSIT_KEY_EXISTS=true
+fi
+
+K8S_SECRET_EXISTS=false
+if kubectl get secret consumer-pc-signing-key -n "${NAMESPACE}" &>/dev/null; then
+    K8S_SECRET_EXISTS=true
+fi
+
+if [ "${TRANSIT_KEY_EXISTS}" = "true" ] && [ "${K8S_SECRET_EXISTS}" = "true" ]; then
+    echo "consumer-pc-signing-key secret and Vault transit key already exist — reusing existing key"
+    PUBLIC_KEY_MULTIBASE=$(kubectl get secret consumer-pc-signing-key \
         -n "${NAMESPACE}" \
         -o "jsonpath={.data.publicKeyMultibase}" \
         | base64 -d)
+    KEY_ID=$(kubectl get secret consumer-pc-signing-key \
+        -n "${NAMESPACE}" \
+        -o "jsonpath={.data.keyId}" \
+        | base64 -d)
 else
-    echo "Generating Ed25519 keypair for did:web:consumer..."
+    if [ "${TRANSIT_KEY_EXISTS}" = "false" ]; then
+        echo "Creating consumer PC transit signing key in Vault..."
+        vault_cmd write -f "transit/keys/${TRANSIT_KEY_NAME}" type=ed25519
+        echo "Transit key created"
+    fi
 
-    # Outputs: "<base64-pkcs8-private-key> <multibase-public-key>"
-    KEYPAIR=$(cargo run -q --manifest-path "${SCRIPT_DIR}/../../Cargo.toml" \
-        -p dsdk-facet-e2e-tests --bin consumer-did-setup)
+    echo "Exporting public key..."
+    CONSUMER_PC_PUBKEY_B64=$(kubectl exec -n "${NAMESPACE}" "${VAULT_POD}" -- \
+        env VAULT_TOKEN="${VAULT_TOKEN}" vault read -format=json \
+        "transit/keys/${TRANSIT_KEY_NAME}" | \
+        python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+latest = str(data['data']['latest_version'])
+print(data['data']['keys'][latest]['public_key'], end='')
+")
 
-    PRIVATE_KEY_B64=$(echo "${KEYPAIR}" | cut -d' ' -f1)
-    PUBLIC_KEY_MULTIBASE=$(echo "${KEYPAIR}" | cut -d' ' -f2)
+    PUBLIC_KEY_MULTIBASE=$(echo "${CONSUMER_PC_PUBKEY_B64}" | python3 -c "
+import sys, base64
 
-    # Write private key DER bytes to a temp file so kubectl stores raw bytes in the Secret
-    # (using --from-file avoids double base64 encoding that --from-literal would cause)
-    TEMP_KEY=$(mktemp)
-    echo "${PRIVATE_KEY_B64}" | base64 -d > "${TEMP_KEY}"
+BASE58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 
-    kubectl create secret generic consumer-did-private-key \
-        --from-file="privateKeyDer=${TEMP_KEY}" \
+def base58_encode(data):
+    n = int.from_bytes(data, 'big')
+    result = []
+    while n > 0:
+        n, r = divmod(n, 58)
+        result.append(BASE58[r])
+    result.reverse()
+    pad = len(data) - len(data.lstrip(b'\x00'))
+    return '1' * pad + ''.join(result)
+
+raw = base64.b64decode(sys.stdin.read().strip())
+prefixed = bytes([0xed, 0x01]) + raw
+print('z' + base58_encode(prefixed), end='')
+")
+
+    kubectl create secret generic consumer-pc-signing-key \
         --from-literal="publicKeyMultibase=${PUBLIC_KEY_MULTIBASE}" \
+        --from-literal="keyId=${KEY_ID}" \
         -n "${NAMESPACE}" \
         --dry-run=client -o yaml | kubectl apply -f - --server-side --force-conflicts
 
-    rm -f "${TEMP_KEY}"
+    echo "consumer-pc-signing-key secret created/updated"
 fi
 
-# Always (re)build the ConfigMap from the current public key and restart the pod.
-# This reconciles any drift — e.g. if the ConfigMap was overwritten by old test code
-# while the Secret remained intact — and guarantees nginx serves the correct key.
-echo "Reconciling consumer DID document (public key: ${PUBLIC_KEY_MULTIBASE:0:20}...)"
+echo "Consumer PC signing key: id=${KEY_ID}, multibase=${PUBLIC_KEY_MULTIBASE:0:20}..."
 
+# Build the DID document. The verification method id uses the kid as the fragment,
+# matching how VaultJwtGenerator sets kid and DidWebVerificationKeyResolver resolves it:
+#   kid = "client-signing-test-participant-context-1"
+#   → looks for vm.id ending in "#client-signing-test-participant-context-1"
 DID_JSON=$(cat <<EOF
 {
   "@context": [
@@ -69,14 +122,14 @@ DID_JSON=$(cat <<EOF
   "id": "did:web:consumer",
   "verificationMethod": [
     {
-      "id": "did:web:consumer#key-1",
+      "id": "did:web:consumer#${KEY_ID}",
       "type": "Ed25519VerificationKey2020",
       "controller": "did:web:consumer",
       "publicKeyMultibase": "${PUBLIC_KEY_MULTIBASE}"
     }
   ],
-  "authentication": ["did:web:consumer#key-1"],
-  "assertionMethod": ["did:web:consumer#key-1"]
+  "authentication": ["did:web:consumer#${KEY_ID}"],
+  "assertionMethod": ["did:web:consumer#${KEY_ID}"]
 }
 EOF
 )
@@ -102,3 +155,4 @@ kubectl rollout status deployment/consumer-did -n "${NAMESPACE}" --timeout=60s
 
 echo ""
 echo "Consumer DID server ready: http://consumer/.well-known/did.json"
+echo "  Verification method: did:web:consumer#${KEY_ID}"

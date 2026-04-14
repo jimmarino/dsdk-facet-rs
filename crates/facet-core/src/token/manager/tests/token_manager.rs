@@ -12,7 +12,9 @@
 
 use super::{JwtTokenManager, MemoryRenewableTokenStore, TokenManager, ValidatedServerSecret};
 use crate::context::ParticipantContext;
-use crate::jwt::jwtutils::{StaticSigningKeyResolver, StaticVerificationKeyResolver, generate_ed25519_keypair_pem};
+use crate::jwt::test_fixtures::{
+    StaticSigningKeyResolver, StaticVerificationKeyResolver, generate_ed25519_keypair_pem,
+};
 use crate::jwt::{
     JwtGenerator, JwtVerifier, KeyFormat, LocalJwtGenerator, LocalJwtVerifier, SigningAlgorithm, TokenClaims,
 };
@@ -719,9 +721,9 @@ async fn test_round_trip_old_refresh_token_invalid_after_renewal() {
 /// Test fixture containing all the components needed for testing
 struct TestFixture {
     manager: JwtTokenManager,
-    store: Arc<MemoryRenewableTokenStore>,
-    generator: Arc<LocalJwtGenerator>,
-    verifier: Arc<LocalJwtVerifier>,
+    store: Arc<dyn RenewableTokenStore>,
+    generator: Arc<dyn JwtGenerator>,
+    verifier: Arc<dyn JwtVerifier>,
 }
 
 /// Helper function to create a JwtTokenManager with real JWT generator/verifier for testing
@@ -731,7 +733,6 @@ fn create_jwt_token_manager(clock: Arc<dyn Clock>) -> TestFixture {
     let signing_resolver = Arc::new(
         StaticSigningKeyResolver::builder()
             .key(keypair.private_key.clone())
-            .iss("did:web:issuer.com")
             .kid("test_kid_1")
             .key_format(KeyFormat::PEM)
             .build(),

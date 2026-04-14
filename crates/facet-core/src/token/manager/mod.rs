@@ -203,6 +203,9 @@ pub trait RenewableTokenStore: Send + Sync {
 
 pub struct JwtTokenManager {
     issuer: String,
+    /// Short stable ID used to derive the signing key name via `JwtGenerator`.
+    /// Defaults to `issuer` when not set.
+    issuer_id: Option<String>,
     refresh_endpoint: String,
     // TODO implement rotation strategy
     server_secret: ValidatedServerSecret,
@@ -222,6 +225,7 @@ impl JwtTokenManager {
     #[builder(finish_fn = build)]
     pub fn new(
         #[builder(into)] issuer: String,
+        #[builder(into)] issuer_id: Option<String>,
         #[builder(into)] refresh_endpoint: String,
         // TODO implement rotation strategy
         server_secret: ValidatedServerSecret,
@@ -237,6 +241,7 @@ impl JwtTokenManager {
     ) -> Self {
         Self {
             issuer,
+            issuer_id,
             refresh_endpoint,
             server_secret,
             token_duration,
@@ -294,6 +299,13 @@ impl JwtTokenManager {
             .build()
     }
 
+    /// Builds the participant context representing this token manager's issuer.
+    /// Used to select the correct signing key via `JwtGenerator`.
+    fn issuer_context(&self) -> ParticipantContext {
+        let id = self.issuer_id.as_deref().unwrap_or(&self.issuer);
+        ParticipantContext::builder().id(id).identifier(&self.issuer).build()
+    }
+
     fn renewal_expiration(&self) -> Result<DateTime<Utc>, TokenError> {
         let expires_at = DateTime::from_timestamp(self.clock.now().timestamp() + self.renewal_token_duration, 0)
             .ok_or_else(|| {
@@ -318,9 +330,12 @@ impl TokenManager for JwtTokenManager {
         let jti = Uuid::new_v4().to_string();
         let aud = participant_context.audience.as_str();
         let token_claims = self.create_claims(aud, &jti, subject, &claims);
+
+        // Use the Siglet issuer context for issuing and signing the token
+        let issuer_context = &self.issuer_context();
         let token = self
             .token_generator
-            .generate_token(participant_context, token_claims)
+            .generate_token(issuer_context, token_claims)
             .await?;
 
         let (refresh_token, hashed_refresh_token) = self.create_renewal_token()?;
@@ -379,13 +394,9 @@ impl TokenManager for JwtTokenManager {
         let aud = entry.audience.as_str();
         let new_claims = self.create_claims(aud, &new_jti, verified_claims.sub.as_str(), &entry.claims);
 
-        let participant_context = ParticipantContext::builder()
-            .id(entry.participant_context_id.clone())
-            .audience(entry.audience.clone())
-            .build();
         let token = self
             .token_generator
-            .generate_token(&participant_context, new_claims)
+            .generate_token(&self.issuer_context(), new_claims)
             .await?;
 
         let new_entry = RenewableTokenEntry::builder()

@@ -12,7 +12,7 @@
 #![allow(clippy::unwrap_used)]
 use chrono::{TimeDelta, Utc};
 use dsdk_facet_core::context::ParticipantContext;
-use dsdk_facet_core::jwt::jwtutils::{
+use dsdk_facet_core::jwt::test_fixtures::{
     StaticSigningKeyResolver, StaticVerificationKeyResolver, generate_ed25519_keypair_pem,
 };
 use dsdk_facet_core::jwt::{JwtVerifier, LocalJwtGenerator, LocalJwtVerifier};
@@ -55,19 +55,13 @@ async fn test_api_end_to_end_with_refresh() {
     let signing_key_resolver = Arc::new(
         StaticSigningKeyResolver::builder()
             .key(private_key)
-            .iss(DID)
             .kid("#key-1")
             .build(),
     );
     let generator = LocalJwtGenerator::builder()
         .signing_key_resolver(signing_key_resolver)
         .build();
-    let token_client = Arc::new(
-        OAuth2TokenClient::builder()
-            .identifier(DID)
-            .jwt_generator(Arc::new(generator))
-            .build(),
-    );
+    let token_client = Arc::new(OAuth2TokenClient::builder().jwt_generator(Arc::new(generator)).build());
 
     let mock_server = MockServer::start().await;
 
@@ -114,6 +108,7 @@ async fn test_api_end_to_end_with_refresh() {
 
     let pc1 = ParticipantContext::builder()
         .id("participant1")
+        .identifier(DID)
         .audience("audience1")
         .build();
 

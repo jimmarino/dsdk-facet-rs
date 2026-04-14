@@ -18,7 +18,7 @@ pub mod token;
 pub mod util;
 pub mod vault;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-fixtures"))]
 pub mod test_fixtures {
-    pub use crate::jwt::jwtutils::*;
+    pub use crate::jwt::test_fixtures::*;
 }

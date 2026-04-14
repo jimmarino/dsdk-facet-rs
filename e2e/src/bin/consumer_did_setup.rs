@@ -17,7 +17,7 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use dsdk_facet_core::jwt::jwtutils::generate_ed25519_keypair_der;
+use dsdk_facet_core::jwt::test_fixtures::generate_ed25519_keypair_der;
 use dsdk_facet_core::util::crypto::convert_to_multibase;
 
 fn main() {

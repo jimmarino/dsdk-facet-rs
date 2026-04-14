@@ -44,6 +44,7 @@ sqlx = { workspace = true }
 
 [dev-dependencies]
 base64 = { workspace = true }
+dsdk-facet-core = { path = "../crates/facet-core", features = ["test-fixtures"] }
 dsdk-facet-testcontainers = { path = "../crates/facet-testcontainers" }
 
 [lints]
