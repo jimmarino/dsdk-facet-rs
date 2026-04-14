@@ -87,7 +87,11 @@ async fn test_renewal_loop_success_scenarios() {
         let renewed = wait_for_condition(&state, |s| s.last_renewed().is_some(), Duration::from_secs(20)).await;
         assert!(renewed, "Renewal should have occurred");
         assert_eq!(state.read().await.consecutive_failures(), 0);
-        assert_eq!(error_count.load(Ordering::SeqCst), 0, "Error callback must not fire on success");
+        assert_eq!(
+            error_count.load(Ordering::SeqCst),
+            0,
+            "Error callback must not fire on success"
+        );
 
         shutdown_tx.send(true).unwrap();
         tokio::time::timeout(Duration::from_secs(1), loop_handle)

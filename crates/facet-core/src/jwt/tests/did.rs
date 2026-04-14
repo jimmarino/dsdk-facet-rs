@@ -282,10 +282,12 @@ async fn test_resolve_key_scenarios() {
     ));
 
     // Scenario: non-existent host → network error
-    assert!(resolver
-        .resolve_key("did:web:nonexistent.invalid.domain.test", "key-1")
-        .await
-        .is_err());
+    assert!(
+        resolver
+            .resolve_key("did:web:nonexistent.invalid.domain.test", "key-1")
+            .await
+            .is_err()
+    );
 }
 
 /// Verifies the full Ed25519 sign→DID-document-roundtrip→verify path used by the e2e test.
