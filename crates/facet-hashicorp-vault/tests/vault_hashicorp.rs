@@ -11,16 +11,40 @@
 //
 
 #![allow(clippy::unwrap_used)]
+use base64::Engine;
 use dsdk_facet_core::context::ParticipantContext;
-use dsdk_facet_core::vault::VaultClient;
-use dsdk_facet_hashicorp_vault::{HashicorpVaultClient, HashicorpVaultConfig, VaultAuthConfig};
+use dsdk_facet_core::jwt::{JwtGenerator, TokenClaims, VaultJwtGenerator};
+use dsdk_facet_core::vault::{PublicKeyFormat, VaultClient, VaultSigningClient};
+use dsdk_facet_hashicorp_vault::{HashicorpVaultClient, HashicorpVaultConfig, JwtKidTransformer, VaultAuthConfig};
 use dsdk_facet_testcontainers::{
     keycloak::setup_keycloak_container, utils::create_network, vault::setup_vault_container,
 };
+use serde_json::json;
+use std::sync::Arc;
+
+// Signing-specific constants
+const ED25519_PUBLIC_KEY_BYTES: usize = 32;
+const ED25519_SIGNATURE_BYTES: usize = 64;
+const MULTIBASE_KEY_MIN_LENGTH: usize = 40;
+const MULTIBASE_KEY_MAX_LENGTH: usize = 60;
+const TEST_TIMESTAMP_EXP: i64 = 1234571490;
+const KEY_NAME_TRANSFORMER_PREFIX: &str = "transformed-";
+const TEST_SIGNING_KEY_NAME: &str = "test-signing-key";
+const INITIAL_KEY_VERSION: usize = 1;
 
 fn create_test_context() -> ParticipantContext {
     ParticipantContext {
         id: "test-id".to_string(),
+        identifier: "test-identifier".to_string(),
+        audience: "test-audience".to_string(),
+    }
+}
+
+fn create_signing_test_context() -> ParticipantContext {
+    // id = "signing-key" so VaultJwtGenerator derives key "test-signing-key"
+    // (prefix "test" + "-" + id "signing-key")
+    ParticipantContext {
+        id: "signing-key".to_string(),
         identifier: "test-identifier".to_string(),
         audience: "test-audience".to_string(),
     }
@@ -355,4 +379,155 @@ async fn test_vault_client_integration() {
             .expect("Participant 2's secret should still be accessible");
         assert_eq!(secret2_after, "secret-for-participant-2");
     }
+
+    // ============================================================================
+    // SCENARIO 7: Transit Signing
+    // Reuses the already-running Vault + Keycloak containers from above.
+    // (Previously a separate test_vault_signing_with_transit test.)
+    // ============================================================================
+    {
+        let ctx = create_signing_test_context();
+        let transformer: JwtKidTransformer =
+            Arc::new(|name| format!("{}{}", KEY_NAME_TRANSFORMER_PREFIX, name));
+
+        let config = HashicorpVaultConfig::builder()
+            .vault_url(&vault_url)
+            .auth_config(VaultAuthConfig::OAuth2 {
+                client_id: keycloak_setup.client_id.clone(),
+                client_secret: keycloak_setup.client_secret.clone(),
+                token_url: keycloak_setup.token_url.clone(),
+                role: None,
+            })
+            .signing_key_name(TEST_SIGNING_KEY_NAME.to_string())
+            .jwt_kid_transformer(transformer)
+            .build();
+
+        let mut signing_client = HashicorpVaultClient::new(config).expect("Failed to create signing Vault client");
+        signing_client.initialize().await.expect("Failed to initialize signing Vault client");
+        let signing_client = Arc::new(signing_client);
+
+        test_key_metadata_multibase(&signing_client).await;
+        test_key_metadata_base64url(&signing_client).await;
+        test_content_signing_determinism(&signing_client).await;
+        test_jwt_generation(&signing_client, &ctx).await;
+    }
+}
+
+async fn test_key_metadata_multibase(client: &Arc<HashicorpVaultClient>) {
+    let metadata = client
+        .get_key_metadata(PublicKeyFormat::Multibase)
+        .await
+        .expect("Failed to get key metadata");
+
+    let expected_name = format!("{}{}", KEY_NAME_TRANSFORMER_PREFIX, TEST_SIGNING_KEY_NAME);
+    assert_eq!(metadata.key_name, expected_name, "Key name should be transformed");
+    assert!(!metadata.keys.is_empty());
+    assert_eq!(metadata.current_version, INITIAL_KEY_VERSION);
+
+    let first_key = &metadata.keys[0];
+    assert!(first_key.starts_with('z'), "Multibase key should start with 'z'");
+    assert!(
+        first_key.len() > MULTIBASE_KEY_MIN_LENGTH && first_key.len() < MULTIBASE_KEY_MAX_LENGTH,
+        "Unexpected multibase key length: {}",
+        first_key.len()
+    );
+}
+
+async fn test_key_metadata_base64url(client: &Arc<HashicorpVaultClient>) {
+    let metadata = client
+        .get_key_metadata(PublicKeyFormat::Base64Url)
+        .await
+        .expect("Failed to get key metadata in Base64Url format");
+
+    let expected_name = format!("{}{}", KEY_NAME_TRANSFORMER_PREFIX, TEST_SIGNING_KEY_NAME);
+    assert_eq!(metadata.key_name, expected_name);
+    assert!(!metadata.keys.is_empty());
+    assert_eq!(metadata.current_version, INITIAL_KEY_VERSION);
+
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(&metadata.keys[0])
+        .expect("Key should be valid base64url");
+    assert_eq!(decoded.len(), ED25519_PUBLIC_KEY_BYTES, "Ed25519 public key must be 32 bytes");
+}
+
+async fn test_content_signing_determinism(client: &Arc<HashicorpVaultClient>) {
+    let payload = serde_json::to_vec(&json!({
+        "sub": "test-subject", "aud": "test-audience", "iss": "test-issuer",
+        "iat": 1234567890i64, "exp": TEST_TIMESTAMP_EXP
+    }))
+    .expect("Failed to serialize payload");
+
+    let sig1 = client.sign_content(&payload).await.expect("Failed to sign");
+    assert_eq!(sig1.len(), ED25519_SIGNATURE_BYTES);
+
+    let sig2 = client.sign_content(&payload).await.expect("Failed to sign second time");
+    assert_eq!(sig1, sig2, "Same content should produce the same signature");
+
+    let different = serde_json::to_vec(&json!({
+        "sub": "different-subject", "aud": "test-audience", "iss": "test-issuer",
+        "iat": 1234567890i64, "exp": TEST_TIMESTAMP_EXP
+    }))
+    .expect("Failed to serialize");
+    let sig3 = client.sign_content(&different).await.expect("Failed to sign different content");
+    assert_ne!(sig1, sig3, "Different content should produce different signatures");
+}
+
+async fn test_jwt_generation(client: &Arc<HashicorpVaultClient>, ctx: &ParticipantContext) {
+    let generator = VaultJwtGenerator::builder()
+        .signing_client(Arc::clone(client) as Arc<dyn VaultSigningClient>)
+        .key_name_prefix("test")
+        .build();
+
+    let claims = TokenClaims::builder()
+        .sub("test-subject")
+        .aud("test-audience")
+        .iss("test-issuer")
+        .exp(TEST_TIMESTAMP_EXP)
+        .build();
+
+    let jwt = generator.generate_token(ctx, claims.clone()).await.expect("Failed to generate JWT");
+    let parts: Vec<&str> = jwt.split('.').collect();
+    assert_eq!(parts.len(), 3, "JWT must have 3 parts");
+
+    let expected_kid = format!(
+        "{}{}-{}",
+        KEY_NAME_TRANSFORMER_PREFIX, TEST_SIGNING_KEY_NAME, INITIAL_KEY_VERSION
+    );
+
+    let header: serde_json::Value = serde_json::from_slice(
+        &base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(parts[0])
+            .expect("Failed to decode header"),
+    )
+    .expect("Failed to parse header");
+    assert_eq!(header["alg"], "EdDSA");
+    assert_eq!(header["typ"], "JWT");
+    assert_eq!(header["kid"], expected_kid);
+
+    let payload: serde_json::Value = serde_json::from_slice(
+        &base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(parts[1])
+            .expect("Failed to decode payload"),
+    )
+    .expect("Failed to parse payload");
+    assert_eq!(payload["sub"], "test-subject");
+    assert_eq!(payload["aud"], "test-audience");
+    assert_eq!(payload["iss"], "test-issuer");
+    assert_eq!(payload["exp"], TEST_TIMESTAMP_EXP);
+    assert!(payload["iat"].is_i64());
+
+    let sig_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(parts[2])
+        .expect("Signature must be valid base64url");
+    assert_eq!(sig_bytes.len(), ED25519_SIGNATURE_BYTES);
+
+    // Different claims → different JWT
+    let other = TokenClaims::builder()
+        .sub("different-subject")
+        .aud("test-audience")
+        .iss("test-issuer")
+        .exp(TEST_TIMESTAMP_EXP)
+        .build();
+    let other_jwt = generator.generate_token(ctx, other).await.expect("Failed to generate second JWT");
+    assert_ne!(jwt, other_jwt);
 }
