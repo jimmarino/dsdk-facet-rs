@@ -89,14 +89,30 @@ E2E_NAMESPACE="${E2E_NAMESPACE:-vault-e2e-test}"
 # `kind load` replaces the image in containerd but Kubernetes won't notice
 # because the tag (`siglet:local`) hasn't changed.
 if kubectl get deployment siglet -n "${E2E_NAMESPACE}" &>/dev/null; then
+    # Re-apply Vault configuration before restarting. Vault runs in dev mode (in-memory
+    # storage), so its config is wiped on pod restart. Even without a restart, the
+    # token_reviewer_jwt captured at initial setup can expire. Running configure-vault.sh
+    # here (idempotent) ensures Vault auth is always valid before siglet starts.
+    echo "Re-applying Vault configuration..."
+    "${SCRIPT_DIR}/configure-vault.sh"
+    echo ""
+
     echo "Restarting siglet deployment to pick up new image..."
     kubectl rollout restart deployment/siglet -n "${E2E_NAMESPACE}"
 
     # Wait for the new pod to become Available. This returns as soon as the desired
     # number of replicas are ready — without waiting for old terminating pods to be
     # fully cleaned up (which can stall on slow nodes / macOS Kind clusters).
-    kubectl wait --for=condition=available deployment/siglet \
-        -n "${E2E_NAMESPACE}" --timeout=300s
+    if ! kubectl wait --for=condition=available deployment/siglet \
+        -n "${E2E_NAMESPACE}" --timeout=300s; then
+        echo ""
+        echo "ERROR: Siglet deployment did not become available within 300s."
+        echo "--- vault-agent logs ---"
+        kubectl logs -n "${E2E_NAMESPACE}" -l app=siglet -c vault-agent --tail=30 2>/dev/null || true
+        echo "--- siglet container logs ---"
+        kubectl logs -n "${E2E_NAMESPACE}" -l app=siglet -c siglet --tail=30 2>/dev/null || true
+        exit 1
+    fi
 
     echo "Siglet restarted"
     echo ""

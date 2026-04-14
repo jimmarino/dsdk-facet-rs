@@ -27,9 +27,10 @@ COPY --from=planner /build/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
 # Copy source code and build application (only this layer rebuilds on code changes).
-# CACHE_INVALIDATE is set to the git HEAD SHA by the build script so Docker always
-# invalidates this layer when source has changed, while the dep layer above stays cached.
+# CACHE_INVALIDATE is set to a timestamp by the build script. The RUN below forces
+# Docker to treat it as a cache miss here — all subsequent COPY and RUN layers rebuild.
 ARG CACHE_INVALIDATE=unknown
+RUN echo "cache-invalidate=$CACHE_INVALIDATE"
 COPY facet-rs/Cargo.toml facet-rs/Cargo.lock ./
 COPY facet-rs/crates ./crates
 COPY facet-rs/siglet ./siglet

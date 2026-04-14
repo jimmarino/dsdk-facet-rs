@@ -80,34 +80,18 @@ pub struct KeyMetadata {
 /// A client for signing content using a vault. Only Ed25519 signatures are supported.
 #[async_trait]
 pub trait VaultSigningClient: Send + Sync {
-    /// Returns Ed25519 signing keys and associated metadata for the configured default key.
-    ///
-    /// # Arguments
-    /// * `format` - The desired format for the public keys (Multibase or Base64Url)
-    async fn get_key_metadata(&self, format: PublicKeyFormat) -> Result<KeyMetadata, VaultError>;
-
-    /// Signs content using the configured default signing key.
-    async fn sign_content(&self, content: &[u8]) -> Result<Vec<u8>, VaultError>;
+    /// Returns the name of the default signing key, or `None` if not configured.
+    fn signing_key_name(&self) -> Option<&str>;
 
     /// Returns Ed25519 signing keys and associated metadata for a named transit key.
     ///
-    /// Used for per-participant-context signing where each PC has its own transit key.
-    /// Defaults to `get_key_metadata` for implementations that only support a single key.
-    async fn get_key_metadata_for_key(
-        &self,
-        _key_name: &str,
-        format: PublicKeyFormat,
-    ) -> Result<KeyMetadata, VaultError> {
-        self.get_key_metadata(format).await
-    }
+    /// # Arguments
+    /// * `key_name` - Name of the transit key
+    /// * `format` - The desired format for the public keys (Multibase or Base64Url)
+    async fn get_key_metadata(&self, key_name: &str, format: PublicKeyFormat) -> Result<KeyMetadata, VaultError>;
 
     /// Signs content using a named transit key.
-    ///
-    /// Used for per-participant-context signing where each PC has its own transit key.
-    /// Defaults to `sign_content` for implementations that only support a single key.
-    async fn sign_content_with_key(&self, _key_name: &str, content: &[u8]) -> Result<Vec<u8>, VaultError> {
-        self.sign_content(content).await
-    }
+    async fn sign_content(&self, key_name: &str, content: &[u8]) -> Result<Vec<u8>, VaultError>;
 }
 
 #[derive(Debug, Error)]

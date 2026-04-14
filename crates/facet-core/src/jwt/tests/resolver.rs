@@ -219,7 +219,11 @@ impl RotatingMockVaultSigningClient {
 
 #[async_trait]
 impl VaultSigningClient for RotatingMockVaultSigningClient {
-    async fn get_key_metadata(&self, _format: PublicKeyFormat) -> Result<KeyMetadata, VaultError> {
+    fn signing_key_name(&self) -> Option<&str> {
+        Some(&self.key_name)
+    }
+
+    async fn get_key_metadata(&self, _key_name: &str, _format: PublicKeyFormat) -> Result<KeyMetadata, VaultError> {
         let count = self.call_count.fetch_add(1, Ordering::SeqCst);
         let keys = if count == 0 {
             &self.initial_keys
@@ -237,7 +241,7 @@ impl VaultSigningClient for RotatingMockVaultSigningClient {
         })
     }
 
-    async fn sign_content(&self, _content: &[u8]) -> Result<Vec<u8>, VaultError> {
+    async fn sign_content(&self, _key_name: &str, _content: &[u8]) -> Result<Vec<u8>, VaultError> {
         Ok(vec![])
     }
 }
@@ -311,7 +315,11 @@ impl MockVaultSigningClient {
 
 #[async_trait]
 impl VaultSigningClient for MockVaultSigningClient {
-    async fn get_key_metadata(&self, _format: PublicKeyFormat) -> Result<KeyMetadata, VaultError> {
+    fn signing_key_name(&self) -> Option<&str> {
+        Some(&self.key_name)
+    }
+
+    async fn get_key_metadata(&self, _key_name: &str, _format: PublicKeyFormat) -> Result<KeyMetadata, VaultError> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         if self.fail {
             return Err(VaultError::NetworkError("simulated vault error".to_string()));
@@ -323,7 +331,7 @@ impl VaultSigningClient for MockVaultSigningClient {
         })
     }
 
-    async fn sign_content(&self, _content: &[u8]) -> Result<Vec<u8>, VaultError> {
+    async fn sign_content(&self, _key_name: &str, _content: &[u8]) -> Result<Vec<u8>, VaultError> {
         Ok(vec![])
     }
 }
@@ -406,5 +414,3 @@ async fn jwk_set_kid_matches_resolver_kid_format() {
 
     assert_eq!(kids, vec!["signing-key-1", "signing-key-2"]);
 }
-
-

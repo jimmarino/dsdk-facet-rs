@@ -387,8 +387,7 @@ async fn test_vault_client_integration() {
     // ============================================================================
     {
         let ctx = create_signing_test_context();
-        let transformer: JwtKidTransformer =
-            Arc::new(|name| format!("{}{}", KEY_NAME_TRANSFORMER_PREFIX, name));
+        let transformer: JwtKidTransformer = Arc::new(|name| format!("{}{}", KEY_NAME_TRANSFORMER_PREFIX, name));
 
         let config = HashicorpVaultConfig::builder()
             .vault_url(&vault_url)
@@ -403,7 +402,10 @@ async fn test_vault_client_integration() {
             .build();
 
         let mut signing_client = HashicorpVaultClient::new(config).expect("Failed to create signing Vault client");
-        signing_client.initialize().await.expect("Failed to initialize signing Vault client");
+        signing_client
+            .initialize()
+            .await
+            .expect("Failed to initialize signing Vault client");
         let signing_client = Arc::new(signing_client);
 
         test_key_metadata_multibase(&signing_client).await;
@@ -415,7 +417,7 @@ async fn test_vault_client_integration() {
 
 async fn test_key_metadata_multibase(client: &Arc<HashicorpVaultClient>) {
     let metadata = client
-        .get_key_metadata(PublicKeyFormat::Multibase)
+        .get_key_metadata(TEST_SIGNING_KEY_NAME, PublicKeyFormat::Multibase)
         .await
         .expect("Failed to get key metadata");
 
@@ -435,7 +437,7 @@ async fn test_key_metadata_multibase(client: &Arc<HashicorpVaultClient>) {
 
 async fn test_key_metadata_base64url(client: &Arc<HashicorpVaultClient>) {
     let metadata = client
-        .get_key_metadata(PublicKeyFormat::Base64Url)
+        .get_key_metadata(TEST_SIGNING_KEY_NAME, PublicKeyFormat::Base64Url)
         .await
         .expect("Failed to get key metadata in Base64Url format");
 
@@ -447,7 +449,11 @@ async fn test_key_metadata_base64url(client: &Arc<HashicorpVaultClient>) {
     let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(&metadata.keys[0])
         .expect("Key should be valid base64url");
-    assert_eq!(decoded.len(), ED25519_PUBLIC_KEY_BYTES, "Ed25519 public key must be 32 bytes");
+    assert_eq!(
+        decoded.len(),
+        ED25519_PUBLIC_KEY_BYTES,
+        "Ed25519 public key must be 32 bytes"
+    );
 }
 
 async fn test_content_signing_determinism(client: &Arc<HashicorpVaultClient>) {
@@ -457,10 +463,16 @@ async fn test_content_signing_determinism(client: &Arc<HashicorpVaultClient>) {
     }))
     .expect("Failed to serialize payload");
 
-    let sig1 = client.sign_content(&payload).await.expect("Failed to sign");
+    let sig1 = client
+        .sign_content(TEST_SIGNING_KEY_NAME, &payload)
+        .await
+        .expect("Failed to sign");
     assert_eq!(sig1.len(), ED25519_SIGNATURE_BYTES);
 
-    let sig2 = client.sign_content(&payload).await.expect("Failed to sign second time");
+    let sig2 = client
+        .sign_content(TEST_SIGNING_KEY_NAME, &payload)
+        .await
+        .expect("Failed to sign second time");
     assert_eq!(sig1, sig2, "Same content should produce the same signature");
 
     let different = serde_json::to_vec(&json!({
@@ -468,7 +480,10 @@ async fn test_content_signing_determinism(client: &Arc<HashicorpVaultClient>) {
         "iat": 1234567890i64, "exp": TEST_TIMESTAMP_EXP
     }))
     .expect("Failed to serialize");
-    let sig3 = client.sign_content(&different).await.expect("Failed to sign different content");
+    let sig3 = client
+        .sign_content(TEST_SIGNING_KEY_NAME, &different)
+        .await
+        .expect("Failed to sign different content");
     assert_ne!(sig1, sig3, "Different content should produce different signatures");
 }
 
@@ -485,7 +500,10 @@ async fn test_jwt_generation(client: &Arc<HashicorpVaultClient>, ctx: &Participa
         .exp(TEST_TIMESTAMP_EXP)
         .build();
 
-    let jwt = generator.generate_token(ctx, claims.clone()).await.expect("Failed to generate JWT");
+    let jwt = generator
+        .generate_token(ctx, claims.clone())
+        .await
+        .expect("Failed to generate JWT");
     let parts: Vec<&str> = jwt.split('.').collect();
     assert_eq!(parts.len(), 3, "JWT must have 3 parts");
 
@@ -528,6 +546,9 @@ async fn test_jwt_generation(client: &Arc<HashicorpVaultClient>, ctx: &Participa
         .iss("test-issuer")
         .exp(TEST_TIMESTAMP_EXP)
         .build();
-    let other_jwt = generator.generate_token(ctx, other).await.expect("Failed to generate second JWT");
+    let other_jwt = generator
+        .generate_token(ctx, other)
+        .await
+        .expect("Failed to generate second JWT");
     assert_ne!(jwt, other_jwt);
 }

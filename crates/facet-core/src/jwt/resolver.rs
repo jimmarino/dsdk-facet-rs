@@ -11,8 +11,8 @@
 //
 
 use crate::jwt::{
-    Jwk, JwkKeyType, JwkPublicKeyUse, JwkSet, JwkSetProvider, JwtVerificationError, KeyFormat,
-    KeyMaterial, VerificationKeyResolver,
+    Jwk, JwkKeyType, JwkPublicKeyUse, JwkSet, JwkSetProvider, JwtVerificationError, KeyFormat, KeyMaterial,
+    VerificationKeyResolver,
 };
 use crate::util::task::TaskHandle;
 use crate::vault::{PublicKeyFormat, VaultSigningClient};
@@ -63,9 +63,13 @@ impl VaultKeyResolverState {
     }
 
     async fn load_keys(&self) -> Result<(), JwtVerificationError> {
+        let key_name = self
+            .vault_client
+            .signing_key_name()
+            .ok_or_else(|| JwtVerificationError::GeneralError("signing_key_name not configured".to_string()))?;
         let metadata = self
             .vault_client
-            .get_key_metadata(PublicKeyFormat::Base64Url)
+            .get_key_metadata(key_name, PublicKeyFormat::Base64Url)
             .await
             .map_err(|e| JwtVerificationError::GeneralError(format!("Failed to get key metadata: {}", e)))?;
 

@@ -190,16 +190,6 @@ impl HashicorpVaultClient {
         )
     }
 
-    /// Constructs the URL for Transit sign operations using the configured key name.
-    fn transit_sign_url(&self) -> Result<String, VaultError> {
-        let key_name = self
-            .config
-            .signing_key_name
-            .as_ref()
-            .ok_or_else(|| VaultError::InvalidData("signing_key_name not configured".to_string()))?;
-        Ok(self.transit_sign_url_for_key(key_name))
-    }
-
     /// Constructs the URL for Transit sign operations using an explicit key name.
     fn transit_sign_url_for_key(&self, key_name: &str) -> String {
         format!(
@@ -276,49 +266,6 @@ impl HashicorpVaultClient {
         }
 
         Ok(())
-    }
-
-    /// Signs content using the Transit API at the given URL (shared by `sign_content` and `sign_content_with_key`).
-    async fn sign_content_at_url(&self, url: &str, content: &[u8]) -> Result<Vec<u8>, VaultError> {
-        let state = self.ensure_initialized()?;
-        let token = {
-            let state = state.read().await;
-            state.token()
-        };
-
-        let encoded_content = base64::engine::general_purpose::STANDARD.encode(content);
-        let request = TransitSignRequest { input: encoded_content };
-
-        let response = self
-            .http_client
-            .post(url)
-            .header("X-Vault-Token", &token)
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| VaultError::NetworkError(format!("Failed to sign content: {}", e)))?;
-
-        if !response.status().is_success() {
-            return Err(handle_error_response(response, "Failed to sign content").await);
-        }
-
-        let sign_response: TransitSignResponse = response
-            .json()
-            .await
-            .map_err(|e| VaultError::InvalidData(format!("Failed to parse sign response: {}", e)))?;
-
-        let signature_b64 = sign_response
-            .data
-            .signature
-            .rsplit_once(':')
-            .map(|(_, sig)| sig)
-            .ok_or_else(|| VaultError::InvalidData("Invalid signature format".to_string()))?;
-
-        let signature_bytes = base64::engine::general_purpose::STANDARD
-            .decode(signature_b64)
-            .map_err(|_| VaultError::InvalidData("Signature validation failed".to_string()))?;
-
-        Ok(signature_bytes)
     }
 
     /// Ensures the client is initialized, returning an error if not.
@@ -447,25 +394,11 @@ impl Drop for HashicorpVaultClient {
 
 #[async_trait]
 impl VaultSigningClient for HashicorpVaultClient {
-    async fn get_key_metadata(&self, format: PublicKeyFormat) -> Result<KeyMetadata, VaultError> {
-        let key_name = self
-            .config
-            .signing_key_name
-            .clone()
-            .ok_or_else(|| VaultError::InvalidData("signing_key_name not configured".to_string()))?;
-        self.get_key_metadata_for_key(&key_name, format).await
+    fn signing_key_name(&self) -> Option<&str> {
+        self.config.signing_key_name.as_deref()
     }
 
-    async fn sign_content(&self, content: &[u8]) -> Result<Vec<u8>, VaultError> {
-        let url = self.transit_sign_url()?;
-        self.sign_content_at_url(&url, content).await
-    }
-
-    async fn get_key_metadata_for_key(
-        &self,
-        key_name: &str,
-        format: PublicKeyFormat,
-    ) -> Result<KeyMetadata, VaultError> {
+    async fn get_key_metadata(&self, key_name: &str, format: PublicKeyFormat) -> Result<KeyMetadata, VaultError> {
         let state = self.ensure_initialized()?;
         let url = self.transit_key_url(key_name);
         let token = {
@@ -523,9 +456,47 @@ impl VaultSigningClient for HashicorpVaultClient {
         })
     }
 
-    async fn sign_content_with_key(&self, key_name: &str, content: &[u8]) -> Result<Vec<u8>, VaultError> {
+    async fn sign_content(&self, key_name: &str, content: &[u8]) -> Result<Vec<u8>, VaultError> {
         let url = self.transit_sign_url_for_key(key_name);
-        self.sign_content_at_url(&url, content).await
+        let state = self.ensure_initialized()?;
+        let token = {
+            let state = state.read().await;
+            state.token()
+        };
+
+        let encoded_content = base64::engine::general_purpose::STANDARD.encode(content);
+        let request = TransitSignRequest { input: encoded_content };
+
+        let response = self
+            .http_client
+            .post(url)
+            .header("X-Vault-Token", &token)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| VaultError::NetworkError(format!("Failed to sign content: {}", e)))?;
+
+        if !response.status().is_success() {
+            return Err(handle_error_response(response, "Failed to sign content").await);
+        }
+
+        let sign_response: TransitSignResponse = response
+            .json()
+            .await
+            .map_err(|e| VaultError::InvalidData(format!("Failed to parse sign response: {}", e)))?;
+
+        let signature_b64 = sign_response
+            .data
+            .signature
+            .rsplit_once(':')
+            .map(|(_, sig)| sig)
+            .ok_or_else(|| VaultError::InvalidData("Invalid signature format".to_string()))?;
+
+        let signature_bytes = base64::engine::general_purpose::STANDARD
+            .decode(signature_b64)
+            .map_err(|_| VaultError::InvalidData("Signature validation failed".to_string()))?;
+
+        Ok(signature_bytes)
     }
 }
 

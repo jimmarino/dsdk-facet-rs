@@ -37,8 +37,21 @@ echo ""
 TRANSIT_KEY_NAME="client-signing-test-participant-context"
 KEY_ID="client-signing-test-participant-context-1"
 
+# Vault runs in dev mode (in-memory storage): the transit key is wiped on every
+# Vault pod restart, even if the Kubernetes secret from a prior run still exists.
+# Check the transit key in Vault directly — the K8s secret alone is not sufficient.
+TRANSIT_KEY_EXISTS=false
+if vault_cmd read -format=json "transit/keys/${TRANSIT_KEY_NAME}" >/dev/null 2>&1; then
+    TRANSIT_KEY_EXISTS=true
+fi
+
+K8S_SECRET_EXISTS=false
 if kubectl get secret consumer-pc-signing-key -n "${NAMESPACE}" &>/dev/null; then
-    echo "consumer-pc-signing-key secret already exists — reusing existing key"
+    K8S_SECRET_EXISTS=true
+fi
+
+if [ "${TRANSIT_KEY_EXISTS}" = "true" ] && [ "${K8S_SECRET_EXISTS}" = "true" ]; then
+    echo "consumer-pc-signing-key secret and Vault transit key already exist — reusing existing key"
     PUBLIC_KEY_MULTIBASE=$(kubectl get secret consumer-pc-signing-key \
         -n "${NAMESPACE}" \
         -o "jsonpath={.data.publicKeyMultibase}" \
@@ -48,9 +61,11 @@ if kubectl get secret consumer-pc-signing-key -n "${NAMESPACE}" &>/dev/null; the
         -o "jsonpath={.data.keyId}" \
         | base64 -d)
 else
-    echo "Creating consumer PC transit signing key in Vault..."
-    vault_cmd write -f "transit/keys/${TRANSIT_KEY_NAME}" type=ed25519 2>/dev/null && \
-        echo "Transit key created" || echo "Transit key already exists"
+    if [ "${TRANSIT_KEY_EXISTS}" = "false" ]; then
+        echo "Creating consumer PC transit signing key in Vault..."
+        vault_cmd write -f "transit/keys/${TRANSIT_KEY_NAME}" type=ed25519
+        echo "Transit key created"
+    fi
 
     echo "Exporting public key..."
     CONSUMER_PC_PUBKEY_B64=$(kubectl exec -n "${NAMESPACE}" "${VAULT_POD}" -- \
@@ -89,7 +104,7 @@ print('z' + base58_encode(prefixed), end='')
         -n "${NAMESPACE}" \
         --dry-run=client -o yaml | kubectl apply -f - --server-side --force-conflicts
 
-    echo "consumer-pc-signing-key secret created"
+    echo "consumer-pc-signing-key secret created/updated"
 fi
 
 echo "Consumer PC signing key: id=${KEY_ID}, multibase=${PUBLIC_KEY_MULTIBASE:0:20}..."
