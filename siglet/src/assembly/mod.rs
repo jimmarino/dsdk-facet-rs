@@ -16,19 +16,21 @@ use crate::handler::refresh::TokenRefreshHandler;
 use crate::handler::{SigletDataFlowHandler, TokenApiHandler};
 use dataplane_sdk::core::db::data_flow::memory::MemoryDataFlowRepo;
 use dataplane_sdk::core::db::memory::MemoryContext;
+use dataplane_sdk::core::db::tx::{Transaction, TransactionalContext};
 use dataplane_sdk::sdk::DataPlaneSdk;
+use dataplane_sdk_postgres::{PgContext, PgDataFlowRepo};
 use dsdk_facet_core::jwt::{
     DidWebVerificationKeyResolver, JwkSetProvider, JwtGenerator, JwtVerifier, LocalJwtVerifier, SigningAlgorithm,
     VaultJwtGenerator, VaultVerificationKeyResolver,
 };
 use dsdk_facet_core::lock::{LockManager, MemoryLockManager};
 use dsdk_facet_core::token::client::oauth::OAuth2TokenClient;
-use dsdk_facet_core::token::client::{MemoryTokenStore, TokenClientApi, TokenStore};
+use dsdk_facet_core::token::client::{MemoryTokenStore, TokenClientApi, TokenStore, VaultTokenStore};
 use dsdk_facet_core::token::manager::{
     JwtTokenManager, MemoryRenewableTokenStore, RenewableTokenStore, TokenManager, ValidatedServerSecret,
 };
 use dsdk_facet_core::util::encryption::encryption_key;
-use dsdk_facet_core::vault::VaultSigningClient;
+use dsdk_facet_core::vault::{VaultClient, VaultSigningClient};
 use dsdk_facet_hashicorp_vault::{HashicorpVaultClient, HashicorpVaultConfig, VaultAuthConfig};
 use dsdk_facet_postgres::lock::PostgresLockManager;
 use dsdk_facet_postgres::renewable_token_store::PostgresRenewableTokenStore;
@@ -79,8 +81,8 @@ pub const ACCESS_TOKEN_SIGNING_KEY_PREFIX: &str = "signing";
 // ============================================================================
 
 /// The fully assembled Siglet runtime, ready to be handed to the server.
-pub struct SigletRuntime {
-    pub sdk: DataPlaneSdk<MemoryContext>,
+pub struct SigletRuntime<C: TransactionalContext> {
+    pub sdk: DataPlaneSdk<C>,
     pub refresh_handler: TokenRefreshHandler,
     pub token_api_handler: TokenApiHandler,
 }
@@ -89,24 +91,55 @@ pub struct SigletRuntime {
 // Top-Level Assembly
 // ============================================================================
 
-/// Assembles the complete Siglet runtime from configuration.
-///
-/// Creates shared services (Vault client, JWT components, token manager) and
-/// delegates store creation to the appropriate backend assembly function based
-/// on `cfg.storage_backend`. The three component assembly functions
-/// (`assemble_memory_sdk`, `assemble_refresh_api`, `assemble_token_api`) all
-/// receive references to the same shared services.
-pub async fn assemble(cfg: &SigletConfig) -> Result<SigletRuntime, SigletError> {
-    let vault_client = create_vault_client(cfg).await?;
+/// Assembles the complete Siglet runtime using the in-memory storage backend.
+pub async fn assemble_memory(cfg: &SigletConfig) -> Result<SigletRuntime<MemoryContext>, SigletError> {
+    let vault_client: Arc<dyn VaultSigningClient> = create_vault_client(cfg).await?;
     let (jwt_generator, jwt_verifier) = create_jwt_components(vault_client.clone(), cfg.use_http_resolution);
     let server_secret = generate_server_secret(cfg)?;
 
-    let (token_store, renewable_token_store, lock_manager) = match cfg.storage_backend {
-        StorageBackend::Memory => assemble_memory_stores(),
+    let (renewable_token_store, lock_manager) = assemble_memory_stores();
+    let token_store = Arc::new(MemoryTokenStore::default()) as Arc<dyn TokenStore>;
+
+    let (vault_resolver, vault_provider_verifier) = create_vault_resolver_components(vault_client.clone()).await?;
+    let token_manager = create_token_manager(
+        cfg,
+        server_secret,
+        jwt_generator,
+        jwt_verifier,
+        vault_provider_verifier,
+        renewable_token_store,
+        vault_resolver,
+        SIGLET_PC_ID,
+    );
+
+    let sdk = assemble_memory_sdk(cfg, token_store.clone(), token_manager.clone()).await?;
+    Ok(build_runtime(
+        sdk,
+        token_store,
+        lock_manager,
+        vault_client,
+        token_manager,
+    ))
+}
+
+/// Assembles the complete Siglet runtime using a Postgres-backed storage backend.
+///
+/// Handles both `Postgres` (encrypted token store) and `PostgresVault` (Vault token store)
+/// backends. The data flow SDK always uses `PgContext` backed by the same pool as the stores.
+pub async fn assemble_postgres(cfg: &SigletConfig) -> Result<SigletRuntime<PgContext>, SigletError> {
+    let vault_client = create_vault_client(cfg).await?;
+    let signing_client = vault_client.clone() as Arc<dyn VaultSigningClient>;
+    let (jwt_generator, jwt_verifier) = create_jwt_components(signing_client.clone(), cfg.use_http_resolution);
+    let server_secret = generate_server_secret(cfg)?;
+
+    let url = cfg.postgres_url.as_deref().ok_or_else(|| {
+        SigletError::InvalidConfiguration("postgres_url is required for the Postgres backend".to_string())
+    })?;
+
+    let (pool, (renewable_token_store, lock_manager)) = connect_postgres(url).await?;
+
+    let token_store: Arc<dyn TokenStore> = match cfg.storage_backend {
         StorageBackend::Postgres => {
-            let url = cfg.postgres_url.as_deref().ok_or_else(|| {
-                SigletError::InvalidConfiguration("postgres_url is required for the Postgres backend".to_string())
-            })?;
             let password = cfg.postgres_encryption_password.as_deref().ok_or_else(|| {
                 SigletError::InvalidConfiguration(
                     "postgres_encryption_password is required for the Postgres backend".to_string(),
@@ -117,63 +150,56 @@ pub async fn assemble(cfg: &SigletConfig) -> Result<SigletRuntime, SigletError> 
                     "postgres_encryption_salt is required for the Postgres backend".to_string(),
                 )
             })?;
-            assemble_postgres_stores(url, password, salt).await?
+            let enc_key = encryption_key(password, salt)
+                .map_err(|e| SigletError::InvalidConfiguration(format!("Invalid encryption key config: {}", e)))?;
+            let store = Arc::new(
+                PostgresTokenStore::builder()
+                    .pool(pool.clone())
+                    .encryption_key(enc_key)
+                    .build(),
+            );
+            store.initialize().await.map_err(|e| SigletError::Token(Box::new(e)))?;
+            store as Arc<dyn TokenStore>
         }
+        StorageBackend::PostgresVault => {
+            Arc::new(VaultTokenStore::new(vault_client as Arc<dyn VaultClient>)) as Arc<dyn TokenStore>
+        }
+        StorageBackend::Memory => unreachable!("assemble_postgres called with Memory backend"),
     };
 
-    let vault_resolver = Arc::new(
-        VaultVerificationKeyResolver::builder()
-            .vault_client(vault_client.clone() as Arc<dyn VaultSigningClient>)
-            .build(),
-    );
-
-    vault_resolver
-        .initialize()
-        .await
-        .map_err(|e| SigletError::Vault(Box::new(e)))?;
-
-    let vault_provider_verifier = create_vault_verifier(vault_resolver.clone());
+    let (vault_resolver, vault_provider_verifier) = create_vault_resolver_components(signing_client.clone()).await?;
     let token_manager = create_token_manager(
         cfg,
         server_secret,
-        jwt_generator.clone(),
-        jwt_verifier.clone(),
+        jwt_generator,
+        jwt_verifier,
         vault_provider_verifier,
         renewable_token_store,
         vault_resolver,
         SIGLET_PC_ID,
     );
 
-    let sdk = assemble_memory_sdk(cfg, token_store.clone(), token_manager.clone()).await?;
-    let refresh_handler = assemble_refresh_api(token_manager.clone());
-    let client = Client::new(); // TODO add client config options
-    let token_api_handler = assemble_token_api(
+    let sdk = assemble_postgres_sdk(pool, cfg, token_store.clone(), token_manager.clone()).await?;
+    Ok(build_runtime(
+        sdk,
         token_store,
         lock_manager,
-        vault_client.clone() as Arc<dyn VaultSigningClient>,
-        token_manager.clone(),
-        client,
-    );
-
-    Ok(SigletRuntime {
-        sdk,
-        refresh_handler,
-        token_api_handler,
-    })
+        signing_client,
+        token_manager,
+    ))
 }
 
 // ============================================================================
 // Store Assembly
 // ============================================================================
 
-type StoreBundle = (Arc<dyn TokenStore>, Arc<dyn RenewableTokenStore>, Arc<dyn LockManager>);
+type StoreBundle = (Arc<dyn RenewableTokenStore>, Arc<dyn LockManager>);
 
-/// Assembles in-memory implementations of all stores and the lock manager.
+/// Assembles in-memory implementations of the renewable token store and lock manager.
 pub fn assemble_memory_stores() -> StoreBundle {
-    let token_store = Arc::new(MemoryTokenStore::default()) as Arc<dyn TokenStore>;
     let renewable_token_store = Arc::new(MemoryRenewableTokenStore::default()) as Arc<dyn RenewableTokenStore>;
     let lock_manager = Arc::new(MemoryLockManager::new()) as Arc<dyn LockManager>;
-    (token_store, renewable_token_store, lock_manager)
+    (renewable_token_store, lock_manager)
 }
 
 /// Assembles Postgres-backed implementations of all stores and the lock manager.
@@ -185,24 +211,72 @@ pub async fn assemble_postgres_stores(
     url: &str,
     encryption_password: &str,
     encryption_salt: &str,
-) -> Result<StoreBundle, SigletError> {
-    let pool = PgPool::connect(url)
-        .await
-        .map_err(|e| SigletError::InvalidConfiguration(format!("Failed to connect to Postgres: {}", e)))?;
+) -> Result<(Arc<dyn TokenStore>, StoreBundle), SigletError> {
+    let (pool, bundle) = connect_postgres(url).await?;
 
     let enc_key = encryption_key(encryption_password, encryption_salt)
         .map_err(|e| SigletError::InvalidConfiguration(format!("Invalid encryption key config: {}", e)))?;
 
-    let token_store = Arc::new(
-        PostgresTokenStore::builder()
-            .pool(pool.clone())
-            .encryption_key(enc_key)
-            .build(),
-    );
-    token_store
+    let postgres_token_store = Arc::new(PostgresTokenStore::builder().pool(pool).encryption_key(enc_key).build());
+    postgres_token_store
         .initialize()
         .await
         .map_err(|e| SigletError::Token(Box::new(e)))?;
+    let token_store = postgres_token_store as Arc<dyn TokenStore>;
+
+    Ok((token_store, bundle))
+}
+
+/// Assembles Postgres-backed `RenewableTokenStore` and `LockManager` only.
+///
+/// Used by the `postgres-vault` backend, where `TokenStore` is handled by Vault and
+/// does not require an encryption key.
+pub async fn assemble_postgres_bundle(url: &str) -> Result<StoreBundle, SigletError> {
+    let (_, bundle) = connect_postgres(url).await?;
+    Ok(bundle)
+}
+
+/// Assembles a Postgres-backed SDK for data plane operations.
+///
+/// Shares the provided pool with the caller's stores — no second pool is created.
+/// Runs schema migrations via `PgDataFlowRepo::migrate` before building the SDK.
+pub async fn assemble_postgres_sdk(
+    pool: PgPool,
+    cfg: &SigletConfig,
+    token_store: Arc<dyn TokenStore>,
+    token_manager: Arc<dyn TokenManager>,
+) -> Result<DataPlaneSdk<PgContext>, SigletError> {
+    let ctx = PgContext::new(pool);
+    let repo = PgDataFlowRepo::default();
+
+    let mut tx = ctx
+        .begin()
+        .await
+        .map_err(|e| SigletError::DataPlane(anyhow::anyhow!(e)))?;
+    repo.migrate(&mut tx)
+        .await
+        .map_err(|e| SigletError::DataPlane(anyhow::anyhow!(e)))?;
+    tx.commit()
+        .await
+        .map_err(|e| SigletError::DataPlane(anyhow::anyhow!(e)))?;
+
+    let siglet_handler = create_siglet_handler(cfg, token_store, token_manager);
+
+    DataPlaneSdk::builder(ctx)
+        .with_repo(repo)
+        .with_handler(siglet_handler)
+        .build()
+        .map_err(|e| SigletError::DataPlane(anyhow::anyhow!(e)))
+}
+
+/// Connects to Postgres and initializes the `RenewableTokenStore` and `LockManager`.
+///
+/// Returns the raw pool (for callers that need it to build additional stores) alongside
+/// the initialized bundle.
+async fn connect_postgres(url: &str) -> Result<(PgPool, StoreBundle), SigletError> {
+    let pool = PgPool::connect(url)
+        .await
+        .map_err(|e| SigletError::InvalidConfiguration(format!("Failed to connect to Postgres: {}", e)))?;
 
     let renewable_token_store = Arc::new(PostgresRenewableTokenStore::new(pool.clone()));
     renewable_token_store
@@ -210,13 +284,13 @@ pub async fn assemble_postgres_stores(
         .await
         .map_err(|e| SigletError::Token(Box::new(e)))?;
 
-    let lock_manager = Arc::new(PostgresLockManager::builder().pool(pool).build());
+    let lock_manager = Arc::new(PostgresLockManager::builder().pool(pool.clone()).build());
     lock_manager
         .initialize()
         .await
         .map_err(|e| SigletError::Token(Box::new(e)))?;
 
-    Ok((token_store, renewable_token_store, lock_manager))
+    Ok((pool, (renewable_token_store, lock_manager)))
 }
 
 // ============================================================================
@@ -288,6 +362,47 @@ pub fn assemble_token_api(
 // Internal Helpers
 // ============================================================================
 
+/// Initializes the Vault verification key resolver and returns it alongside the verifier it backs.
+async fn create_vault_resolver_components(
+    vault_client: Arc<dyn VaultSigningClient>,
+) -> Result<(Arc<VaultVerificationKeyResolver>, Arc<dyn JwtVerifier>), SigletError> {
+    let vault_resolver = Arc::new(
+        VaultVerificationKeyResolver::builder()
+            .vault_client(vault_client)
+            .build(),
+    );
+    vault_resolver
+        .initialize()
+        .await
+        .map_err(|e| SigletError::Vault(Box::new(e)))?;
+    let vault_provider_verifier = create_vault_verifier(vault_resolver.clone());
+    Ok((vault_resolver, vault_provider_verifier))
+}
+
+/// Constructs the final `SigletRuntime<C>` from fully assembled components.
+fn build_runtime<C: TransactionalContext>(
+    sdk: DataPlaneSdk<C>,
+    token_store: Arc<dyn TokenStore>,
+    lock_manager: Arc<dyn LockManager>,
+    vault_client: Arc<dyn VaultSigningClient>,
+    token_manager: Arc<dyn TokenManager>,
+) -> SigletRuntime<C> {
+    let refresh_handler = assemble_refresh_api(token_manager.clone());
+    let client = Client::new();
+    let token_api_handler = assemble_token_api(
+        token_store,
+        lock_manager,
+        vault_client,
+        token_manager,
+        client,
+    );
+    SigletRuntime {
+        sdk,
+        refresh_handler,
+        token_api_handler,
+    }
+}
+
 /// Creates a JWT verifier backed by the Vault signing key.
 fn create_vault_verifier(resolver: Arc<VaultVerificationKeyResolver>) -> Arc<dyn JwtVerifier> {
     Arc::new(
@@ -300,12 +415,12 @@ fn create_vault_verifier(resolver: Arc<VaultVerificationKeyResolver>) -> Arc<dyn
 
 /// Creates JWT generator and verifier components
 fn create_jwt_components(
-    vault_client: Arc<HashicorpVaultClient>,
+    vault_client: Arc<dyn VaultSigningClient>,
     use_http_resolution: bool,
 ) -> (Arc<dyn JwtGenerator>, Arc<dyn JwtVerifier>) {
     let jwt_generator = Arc::new(
         VaultJwtGenerator::builder()
-            .signing_client(vault_client.clone() as Arc<dyn VaultSigningClient>)
+            .signing_client(vault_client)
             .key_name_prefix(ACCESS_TOKEN_SIGNING_KEY_PREFIX)
             .build(),
     );
@@ -386,11 +501,14 @@ fn create_token_manager(
 }
 
 /// Builds the data flow handler with token management.
-fn create_siglet_handler(
+///
+/// Generic over `Tx` so the same handler struct can serve both `MemoryContext` and `PgContext`.
+/// The transaction type is inferred from the SDK context at the call site.
+fn create_siglet_handler<Tx: Send + 'static>(
     cfg: &SigletConfig,
     token_store: Arc<dyn TokenStore>,
     token_manager: Arc<dyn TokenManager>,
-) -> SigletDataFlowHandler {
+) -> SigletDataFlowHandler<Tx> {
     let transfer_type_mappings: HashMap<String, TransferType> = cfg
         .transfer_types
         .iter()

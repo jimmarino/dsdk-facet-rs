@@ -59,6 +59,9 @@ pub enum StorageBackend {
     #[default]
     Memory,
     Postgres,
+    /// Vault for `TokenStore`; Postgres for `RenewableTokenStore` and `LockManager`.
+    #[serde(rename = "postgres-vault")]
+    PostgresVault,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]

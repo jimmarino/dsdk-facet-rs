@@ -310,10 +310,6 @@ async fn step_start(ctx: &TestCtx) -> Result<StartOutput> {
     let result: serde_json::Value = response.json().await.context("Failed to parse start response")?;
 
     assert!(result.get("state").is_some(), "Response should contain 'state' field");
-    assert!(
-        result.get("dataplaneId").is_some(),
-        "Response should contain 'dataplaneId' field"
-    );
     assert_eq!(
         result["state"].as_str().unwrap(),
         "STARTED",

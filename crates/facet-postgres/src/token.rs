@@ -311,9 +311,3 @@ struct TokenRecord {
     refresh_endpoint: String,
     endpoint: String,
 }
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct _VaultRecord {
-    pub token: String,
-    pub refresh_token: String,
-}

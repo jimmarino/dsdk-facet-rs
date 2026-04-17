@@ -201,17 +201,24 @@ pub trait RenewableTokenStore: Send + Sync {
     async fn update(&self, old_hash: &str, new_entry: RenewableTokenEntry) -> Result<(), TokenError>;
 }
 
+#[derive(Builder)]
 pub struct JwtTokenManager {
+    #[builder(into)]
     issuer: String,
     /// Short stable ID used to derive the signing key name via `JwtGenerator`.
     /// Defaults to `issuer` when not set.
+    #[builder(into)]
     issuer_id: Option<String>,
+    #[builder(into)]
     refresh_endpoint: String,
-    // TODO implement rotation strategy
     server_secret: ValidatedServerSecret,
+    #[builder(default = 3600)]
     token_duration: i64,
+    #[builder(default = 172800)]
     renewal_token_duration: i64,
+    #[builder(default = 32)]
     refresh_token_bytes: usize,
+    #[builder(default = default_clock())]
     clock: Arc<dyn Clock>,
     token_store: Arc<dyn RenewableTokenStore>,
     token_generator: Arc<dyn JwtGenerator>,
@@ -220,42 +227,7 @@ pub struct JwtTokenManager {
     jwk_set_provider: Arc<dyn JwkSetProvider>,
 }
 
-#[bon::bon]
 impl JwtTokenManager {
-    #[builder(finish_fn = build)]
-    pub fn new(
-        #[builder(into)] issuer: String,
-        #[builder(into)] issuer_id: Option<String>,
-        #[builder(into)] refresh_endpoint: String,
-        // TODO implement rotation strategy
-        server_secret: ValidatedServerSecret,
-        #[builder(default = 3600)] token_duration: i64,           // 1 hour
-        #[builder(default = 172800)] renewal_token_duration: i64, // 2 days
-        #[builder(default = 32)] refresh_token_bytes: usize,
-        #[builder(default = default_clock())] clock: Arc<dyn Clock>,
-        token_store: Arc<dyn RenewableTokenStore>,
-        token_generator: Arc<dyn JwtGenerator>,
-        client_verifier: Arc<dyn JwtVerifier>,
-        provider_verifier: Arc<dyn JwtVerifier>,
-        jwk_set_provider: Arc<dyn JwkSetProvider>,
-    ) -> Self {
-        Self {
-            issuer,
-            issuer_id,
-            refresh_endpoint,
-            server_secret,
-            token_duration,
-            renewal_token_duration,
-            refresh_token_bytes,
-            clock,
-            token_store,
-            token_generator,
-            client_verifier,
-            provider_verifier,
-            jwk_set_provider,
-        }
-    }
-
     /// Validates that custom claims don't contain reserved JWT claim names
     fn validate_custom_claims(claims: &HashMap<String, Value>) -> Result<(), TokenError> {
         for reserved in RESERVED_CLAIMS {

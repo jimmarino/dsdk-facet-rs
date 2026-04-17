@@ -19,6 +19,7 @@ dsdk-facet-hashicorp-vault = { path = "../crates/facet-hashicorp-vault" }
 # Eclipse Data Plane SDK
 dataplane-sdk = { git = "https://github.com/eclipse-dataplane-core/dataplane-sdk-rust", branch = "main" }
 dataplane-sdk-axum = { git = "https://github.com/eclipse-dataplane-core/dataplane-sdk-rust", branch = "main" }
+dataplane-sdk-postgres = { git = "https://github.com/eclipse-dataplane-core/dataplane-sdk-rust", branch = "main" }
 
 # Runtime dependencies
 tokio = { workspace = true }

@@ -14,6 +14,7 @@
 
 use crate::assembly::{SIGLET_PC_ID, create_siglet_handler, create_token_manager, generate_server_secret};
 use crate::config::SigletConfig;
+use crate::handler::SigletDataFlowHandler;
 use async_trait::async_trait;
 use dsdk_facet_core::context::ParticipantContext;
 use dsdk_facet_core::jwt::{
@@ -406,8 +407,8 @@ fn test_token_manager_and_handler_integration() {
     );
     let token_store = Arc::new(MemoryTokenStore::default());
 
-    let handler = create_siglet_handler(&cfg, token_store, token_manager);
-    let _ = handler;
+    // Default Tx = MemoryTransaction; type annotation anchors the generic.
+    let _handler: SigletDataFlowHandler = create_siglet_handler(&cfg, token_store, token_manager);
 }
 
 // ============================================================================

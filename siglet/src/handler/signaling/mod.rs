@@ -16,8 +16,7 @@ use chrono::Utc;
 use dataplane_sdk::core::error::HandlerError;
 use dataplane_sdk::core::model::data_address::{DataAddress, EndpointProperty};
 use dataplane_sdk::core::{
-    db::memory::MemoryContext,
-    db::tx::TransactionalContext,
+    db::memory::MemoryTransaction,
     error::HandlerResult,
     handler::DataFlowHandler,
     model::{
@@ -31,6 +30,7 @@ use dsdk_facet_core::token::client::{TokenData, TokenStore};
 use dsdk_facet_core::token::manager::{RenewableTokenPair, TokenManager};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -44,16 +44,18 @@ pub const CLAIM_DATASET_ID: &str = "datasetId";
 
 /// DataFlowHandler implementation for Siglet
 #[derive(Clone, Builder)]
-pub struct SigletDataFlowHandler {
+pub struct SigletDataFlowHandler<Tx = MemoryTransaction> {
     #[allow(dead_code)]
     #[builder(into)]
     dataplane_id: String,
     token_store: Arc<dyn TokenStore>,
     token_manager: Arc<dyn TokenManager>,
     transfer_type_mappings: HashMap<String, TransferType>,
+    #[builder(skip)]
+    _phantom: PhantomData<fn() -> Tx>,
 }
 
-impl SigletDataFlowHandler {
+impl<Tx> SigletDataFlowHandler<Tx> {
     /// Converts a serde_json::Value to a String for use in JWT claims.
     ///
     /// - Objects and arrays are serialized as JSON
@@ -264,8 +266,8 @@ impl SigletDataFlowHandler {
 }
 
 #[async_trait::async_trait]
-impl DataFlowHandler for SigletDataFlowHandler {
-    type Transaction = <MemoryContext as TransactionalContext>::Transaction;
+impl<Tx: Send> DataFlowHandler for SigletDataFlowHandler<Tx> {
+    type Transaction = Tx;
 
     async fn can_handle(&self, flow: &DataFlow) -> HandlerResult<bool> {
         Ok(self.transfer_type_mappings.contains_key(&flow.transfer_type))

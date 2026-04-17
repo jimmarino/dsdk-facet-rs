@@ -12,11 +12,13 @@
 
 pub mod mem;
 pub mod oauth;
+pub mod vault;
 
 #[cfg(test)]
 mod tests;
 
 pub use mem::MemoryTokenStore;
+pub use vault::VaultTokenStore;
 
 const FIVE_SECONDS_MILLIS: i64 = 5_000;
 
