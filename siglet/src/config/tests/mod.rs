@@ -12,14 +12,19 @@
 
 #![allow(clippy::unwrap_used)]
 
-use crate::config::{EndpointMapping, SigletConfig, StorageBackend, TokenSource, TransferType, ValidationError};
+use crate::config::{
+    EndpointMapping, SigletConfig, StorageBackend, TokenConfig, TokenSource, TransferType, ValidationError, VaultConfig,
+};
 use std::net::{IpAddr, Ipv4Addr};
 
 /// Helper function to create a valid minimal configuration
 fn create_valid_config() -> SigletConfig {
     SigletConfig {
-        vault_url: Some("https://vault.example.com".to_string()),
-        vault_token: Some("test-token".to_string()),
+        vault: VaultConfig {
+            url: Some("https://vault.example.com".to_string()),
+            token: Some("test-token".to_string()),
+            ..Default::default()
+        },
         ..Default::default()
     }
 }
@@ -27,9 +32,11 @@ fn create_valid_config() -> SigletConfig {
 /// Helper function to create a valid config with vault token file instead of token
 fn create_valid_config_with_token_file() -> SigletConfig {
     SigletConfig {
-        vault_url: Some("https://vault.example.com".to_string()),
-        vault_token: None,
-        vault_token_file: Some("/var/run/secrets/vault-token".to_string()),
+        vault: VaultConfig {
+            url: Some("https://vault.example.com".to_string()),
+            token_file: Some("/var/run/secrets/vault-token".to_string()),
+            ..Default::default()
+        },
         ..Default::default()
     }
 }
@@ -60,17 +67,17 @@ fn test_valid_config_with_all_fields() {
                 .token_source(TokenSource::Provider)
                 .build(),
         ],
-        use_http_resolution: false,
-        vault_url: Some("https://vault.example.com:8200".to_string()),
-        vault_token: Some("hvs.test-token-12345".to_string()),
-        vault_token_file: None,
-        vault_signing_key_name: "my-signing-key".to_string(),
-        token_issuer: Some("my-issuer".to_string()),
-        token_refresh_endpoint: Some("https://api.example.com/refresh".to_string()),
-        token_server_secret: Some("0123456789abcdef0123456789abcdef".to_string()), // 16 bytes
-        postgres_url: None,
-        postgres_encryption_password: None,
-        postgres_encryption_salt: None,
+        vault: VaultConfig {
+            url: Some("https://vault.example.com:8200".to_string()),
+            token: Some("hvs.test-token-12345".to_string()),
+            signing_key_name: "my-signing-key".to_string(),
+            ..Default::default()
+        },
+        token: TokenConfig {
+            issuer: Some("my-issuer".to_string()),
+            refresh_endpoint: Some("https://api.example.com/refresh".to_string()),
+            server_secret: Some("0123456789abcdef0123456789abcdef".to_string()), // 16 bytes
+        },
     };
 
     assert!(config.validate().is_ok());
@@ -85,7 +92,7 @@ fn test_valid_config_with_token_file() {
 #[test]
 fn test_valid_config_with_both_token_and_token_file() {
     let mut config = create_valid_config();
-    config.vault_token_file = Some("/var/run/secrets/vault-token".to_string());
+    config.vault.token_file = Some("/var/run/secrets/vault-token".to_string());
 
     // Both provided is valid (implementation will choose one)
     assert!(config.validate().is_ok());
@@ -132,7 +139,7 @@ fn test_valid_config_with_multiple_transfer_types() {
 fn test_valid_config_with_long_hex_secret() {
     let mut config = create_valid_config();
     // 64 hex chars = 32 bytes
-    config.token_server_secret = Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string());
+    config.token.server_secret = Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string());
 
     assert!(config.validate().is_ok());
 }
@@ -144,7 +151,7 @@ fn test_valid_config_with_long_hex_secret() {
 #[test]
 fn test_missing_vault_url() {
     let mut config = create_valid_config();
-    config.vault_url = None;
+    config.vault.url = None;
 
     let result = config.validate();
     assert!(result.is_err());
@@ -157,7 +164,7 @@ fn test_missing_vault_url() {
 #[test]
 fn test_invalid_vault_url_format() {
     let mut config = create_valid_config();
-    config.vault_url = Some("not-a-valid-url".to_string());
+    config.vault.url = Some("not-a-valid-url".to_string());
 
     let result = config.validate();
     assert!(result.is_err());
@@ -170,7 +177,7 @@ fn test_invalid_vault_url_format() {
 #[test]
 fn test_invalid_vault_url_missing_scheme() {
     let mut config = create_valid_config();
-    config.vault_url = Some("vault.example.com".to_string());
+    config.vault.url = Some("vault.example.com".to_string());
 
     let result = config.validate();
     assert!(result.is_err());
@@ -183,7 +190,7 @@ fn test_invalid_vault_url_missing_scheme() {
 #[test]
 fn test_valid_vault_url_with_port() {
     let mut config = create_valid_config();
-    config.vault_url = Some("https://vault.example.com:8200".to_string());
+    config.vault.url = Some("https://vault.example.com:8200".to_string());
 
     assert!(config.validate().is_ok());
 }
@@ -191,7 +198,7 @@ fn test_valid_vault_url_with_port() {
 #[test]
 fn test_valid_vault_url_with_path() {
     let mut config = create_valid_config();
-    config.vault_url = Some("https://vault.example.com/v1".to_string());
+    config.vault.url = Some("https://vault.example.com/v1".to_string());
 
     assert!(config.validate().is_ok());
 }
@@ -199,7 +206,7 @@ fn test_valid_vault_url_with_path() {
 #[test]
 fn test_valid_vault_url_http() {
     let mut config = create_valid_config();
-    config.vault_url = Some("http://localhost:8200".to_string());
+    config.vault.url = Some("http://localhost:8200".to_string());
 
     // HTTP is valid (though not recommended for production)
     assert!(config.validate().is_ok());
@@ -212,8 +219,8 @@ fn test_valid_vault_url_http() {
 #[test]
 fn test_missing_vault_authentication() {
     let mut config = create_valid_config();
-    config.vault_token = None;
-    config.vault_token_file = None;
+    config.vault.token = None;
+    config.vault.token_file = None;
 
     let result = config.validate();
     assert!(result.is_err());
@@ -226,8 +233,8 @@ fn test_missing_vault_authentication() {
 #[test]
 fn test_vault_token_provided() {
     let mut config = create_valid_config();
-    config.vault_token = Some("test-token".to_string());
-    config.vault_token_file = None;
+    config.vault.token = Some("test-token".to_string());
+    config.vault.token_file = None;
 
     assert!(config.validate().is_ok());
 }
@@ -245,7 +252,7 @@ fn test_vault_token_file_provided() {
 #[test]
 fn test_valid_hex_server_secret() {
     let mut config = create_valid_config();
-    config.token_server_secret = Some("0123456789abcdef0123456789abcdef".to_string());
+    config.token.server_secret = Some("0123456789abcdef0123456789abcdef".to_string());
 
     assert!(config.validate().is_ok());
 }
@@ -253,7 +260,7 @@ fn test_valid_hex_server_secret() {
 #[test]
 fn test_invalid_hex_server_secret() {
     let mut config = create_valid_config();
-    config.token_server_secret = Some("not-valid-hex".to_string());
+    config.token.server_secret = Some("not-valid-hex".to_string());
 
     let result = config.validate();
     assert!(result.is_err());
@@ -270,7 +277,7 @@ fn test_invalid_hex_server_secret() {
 #[test]
 fn test_empty_server_secret() {
     let mut config = create_valid_config();
-    config.token_server_secret = Some("".to_string());
+    config.token.server_secret = Some("".to_string());
 
     let result = config.validate();
     assert!(result.is_err());
@@ -283,7 +290,7 @@ fn test_empty_server_secret() {
 #[test]
 fn test_server_secret_too_short() {
     let mut config = create_valid_config();
-    config.token_server_secret = Some("0123456789abcdef".to_string()); // 8 bytes, less than 16
+    config.token.server_secret = Some("0123456789abcdef".to_string()); // 8 bytes, less than 16
 
     let result = config.validate();
     assert!(result.is_err());
@@ -300,7 +307,7 @@ fn test_server_secret_too_short() {
 #[test]
 fn test_server_secret_exact_minimum() {
     let mut config = create_valid_config();
-    config.token_server_secret = Some("0123456789abcdef0123456789abcdef".to_string()); // Exactly 16 bytes
+    config.token.server_secret = Some("0123456789abcdef0123456789abcdef".to_string()); // Exactly 16 bytes
 
     assert!(config.validate().is_ok());
 }
@@ -308,7 +315,7 @@ fn test_server_secret_exact_minimum() {
 #[test]
 fn test_server_secret_uppercase_hex() {
     let mut config = create_valid_config();
-    config.token_server_secret = Some("0123456789ABCDEF0123456789ABCDEF".to_string());
+    config.token.server_secret = Some("0123456789ABCDEF0123456789ABCDEF".to_string());
 
     assert!(config.validate().is_ok());
 }
@@ -316,7 +323,7 @@ fn test_server_secret_uppercase_hex() {
 #[test]
 fn test_server_secret_mixed_case_hex() {
     let mut config = create_valid_config();
-    config.token_server_secret = Some("0123456789AbCdEf0123456789aBcDeF".to_string());
+    config.token.server_secret = Some("0123456789AbCdEf0123456789aBcDeF".to_string());
 
     assert!(config.validate().is_ok());
 }
@@ -324,7 +331,7 @@ fn test_server_secret_mixed_case_hex() {
 #[test]
 fn test_no_server_secret_is_valid() {
     let mut config = create_valid_config();
-    config.token_server_secret = None;
+    config.token.server_secret = None;
 
     // None is valid (will generate random secret)
     assert!(config.validate().is_ok());
@@ -567,7 +574,7 @@ fn test_memory_storage_backend_valid() {
 #[test]
 fn test_empty_vault_signing_key_name() {
     let mut config = create_valid_config();
-    config.vault_signing_key_name = "".to_string();
+    config.vault.signing_key_name = "".to_string();
 
     let result = config.validate();
     assert!(result.is_err());
@@ -580,7 +587,7 @@ fn test_empty_vault_signing_key_name() {
 #[test]
 fn test_valid_vault_signing_key_name() {
     let mut config = create_valid_config();
-    config.vault_signing_key_name = "my-custom-key".to_string();
+    config.vault.signing_key_name = "my-custom-key".to_string();
 
     assert!(config.validate().is_ok());
 }
@@ -592,9 +599,9 @@ fn test_valid_vault_signing_key_name() {
 #[test]
 fn test_multiple_validation_errors() {
     let mut config = SigletConfig::default();
-    config.vault_url = None; // Error 1
-    config.vault_token = None; // Error 2 (combined with vault_token_file)
-    config.vault_token_file = None;
+    config.vault.url = None; // Error 1
+    config.vault.token = None; // Error 2 (combined with vault_token_file)
+    config.vault.token_file = None;
     config.siglet_api_port = 8080;
     config.signaling_port = 8080; // Error 3
 
@@ -617,33 +624,33 @@ fn test_all_possible_errors() {
         signaling_port: 0,   // Error 2
         refresh_api_port: 0, // Error 3
         bind: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-        storage_backend: StorageBackend::Postgres, // Error 4
+        storage_backend: StorageBackend::Memory,
         transfer_types: vec![
             TransferType::builder()
-                .transfer_type("".to_string()) // Error 5
-                .endpoint_type("".to_string()) // Error 6
+                .transfer_type("".to_string()) // Error 4
+                .endpoint_type("".to_string()) // Error 5
                 .endpoint("".to_string())
                 .token_source(TokenSource::Provider)
                 .build(),
         ],
-        use_http_resolution: false,
-        vault_url: None,   // Error 7
-        vault_token: None, // Error 8 (combined)
-        vault_token_file: None,
-        vault_signing_key_name: "".to_string(), // Error 9
-        token_issuer: None,
-        token_refresh_endpoint: None,
-        token_server_secret: Some("invalid-hex".to_string()), // Error 10
-        postgres_url: None,
-        postgres_encryption_password: None,
-        postgres_encryption_salt: None,
+        vault: VaultConfig {
+            url: None,   // Error 6
+            token: None, // Error 7 (combined)
+            token_file: None,
+            signing_key_name: "".to_string(), // Error 8
+            use_http_resolution: false,
+        },
+        token: TokenConfig {
+            server_secret: Some("invalid-hex".to_string()), // Error 9
+            ..Default::default()
+        },
     };
 
     let result = config.validate();
     assert!(result.is_err());
 
     let err = result.unwrap_err();
-    assert!(err.error_count() >= 9);
+    assert!(err.error_count() >= 8);
 }
 
 // ============================================================================
@@ -698,7 +705,7 @@ fn test_validation_error_clone() {
 #[test]
 fn test_vault_url_with_query_params() {
     let mut config = create_valid_config();
-    config.vault_url = Some("https://vault.example.com?namespace=admin".to_string());
+    config.vault.url = Some("https://vault.example.com?namespace=admin".to_string());
 
     assert!(config.validate().is_ok());
 }
@@ -706,7 +713,7 @@ fn test_vault_url_with_query_params() {
 #[test]
 fn test_vault_url_localhost() {
     let mut config = create_valid_config();
-    config.vault_url = Some("http://localhost:8200".to_string());
+    config.vault.url = Some("http://localhost:8200".to_string());
 
     assert!(config.validate().is_ok());
 }
@@ -714,7 +721,7 @@ fn test_vault_url_localhost() {
 #[test]
 fn test_vault_url_ip_address() {
     let mut config = create_valid_config();
-    config.vault_url = Some("https://192.168.1.100:8200".to_string());
+    config.vault.url = Some("https://192.168.1.100:8200".to_string());
 
     assert!(config.validate().is_ok());
 }
@@ -731,7 +738,7 @@ fn test_default_config_validation_fails() {
 #[test]
 fn test_config_with_whitespace_in_vault_url() {
     let mut config = create_valid_config();
-    config.vault_url = Some(" https://vault.example.com ".to_string());
+    config.vault.url = Some(" https://vault.example.com ".to_string());
 
     // URL parser accepts and trims whitespace, so this is valid
     // (The URL will be trimmed when parsed)
@@ -742,7 +749,7 @@ fn test_config_with_whitespace_in_vault_url() {
 #[test]
 fn test_vault_signing_key_with_special_characters() {
     let mut config = create_valid_config();
-    config.vault_signing_key_name = "my-key_2024.v1".to_string();
+    config.vault.signing_key_name = "my-key_2024.v1".to_string();
 
     assert!(config.validate().is_ok());
 }

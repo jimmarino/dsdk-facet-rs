@@ -46,7 +46,7 @@ async fn main() {
 }
 
 async fn run(cfg: SigletConfig) -> Result<(), SigletError> {
-    match cfg.storage_backend {
+    match &cfg.storage_backend {
         StorageBackend::Memory => {
             let runtime = assemble_memory(&cfg).await?;
             run_server(
@@ -60,7 +60,7 @@ async fn run(cfg: SigletConfig) -> Result<(), SigletError> {
             )
             .await
         }
-        StorageBackend::Postgres | StorageBackend::PostgresVault => {
+        StorageBackend::Postgres { .. } | StorageBackend::PostgresVault { .. } => {
             let runtime = assemble_postgres(&cfg).await?;
             run_server(
                 cfg.bind,

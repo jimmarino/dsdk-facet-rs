@@ -13,7 +13,7 @@
 #![allow(clippy::unwrap_used)]
 
 use crate::assembly::{SIGLET_PC_ID, create_siglet_handler, create_token_manager, generate_server_secret};
-use crate::config::SigletConfig;
+use crate::config::{SigletConfig, VaultConfig};
 use crate::handler::SigletDataFlowHandler;
 use async_trait::async_trait;
 use dsdk_facet_core::context::ParticipantContext;
@@ -33,7 +33,7 @@ use std::sync::Arc;
 fn test_generate_server_secret_from_hex() {
     let mut cfg = create_test_config();
     // 64 hex chars = 32 bytes (minimum valid length)
-    cfg.token_server_secret = Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string());
+    cfg.token.server_secret = Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string());
 
     let secret = generate_server_secret(&cfg).unwrap();
 
@@ -47,7 +47,7 @@ fn test_generate_server_secret_from_hex() {
 #[test]
 fn test_generate_server_secret_from_hex_uppercase() {
     let mut cfg = create_test_config();
-    cfg.token_server_secret = Some("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string());
+    cfg.token.server_secret = Some("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string());
 
     let secret = generate_server_secret(&cfg).unwrap();
 
@@ -61,7 +61,7 @@ fn test_generate_server_secret_from_hex_uppercase() {
 #[test]
 fn test_generate_server_secret_from_hex_mixed_case() {
     let mut cfg = create_test_config();
-    cfg.token_server_secret = Some("0123456789AbCdEf0123456789aBcDeF0123456789AbCdEf0123456789aBcDeF".to_string());
+    cfg.token.server_secret = Some("0123456789AbCdEf0123456789aBcDeF0123456789AbCdEf0123456789aBcDeF".to_string());
 
     let secret = generate_server_secret(&cfg).unwrap();
 
@@ -72,7 +72,7 @@ fn test_generate_server_secret_from_hex_mixed_case() {
 fn test_generate_server_secret_long_hex() {
     let mut cfg = create_test_config();
     // 128 hex chars = 64 bytes
-    cfg.token_server_secret = Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string());
+    cfg.token.server_secret = Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string());
 
     let secret = generate_server_secret(&cfg).unwrap();
 
@@ -103,7 +103,7 @@ fn test_generate_server_secret_random_is_different() {
 #[test]
 fn test_generate_server_secret_invalid_hex() {
     let mut cfg = create_test_config();
-    cfg.token_server_secret = Some("not-valid-hex".to_string());
+    cfg.token.server_secret = Some("not-valid-hex".to_string());
 
     let result = generate_server_secret(&cfg);
 
@@ -116,7 +116,7 @@ fn test_generate_server_secret_invalid_hex() {
 fn test_generate_server_secret_short_hex_rejected() {
     let mut cfg = create_test_config();
     // 32 hex chars = 16 bytes — too short
-    cfg.token_server_secret = Some("0123456789abcdef0123456789abcdef".to_string());
+    cfg.token.server_secret = Some("0123456789abcdef0123456789abcdef".to_string());
 
     let result = generate_server_secret(&cfg);
 
@@ -132,7 +132,7 @@ fn test_generate_server_secret_short_hex_rejected() {
 #[test]
 fn test_generate_server_secret_empty_hex_rejected() {
     let mut cfg = create_test_config();
-    cfg.token_server_secret = Some("".to_string());
+    cfg.token.server_secret = Some("".to_string());
 
     let result = generate_server_secret(&cfg);
 
@@ -148,7 +148,7 @@ fn test_generate_server_secret_empty_hex_rejected() {
 #[test]
 fn test_generate_server_secret_odd_length_hex() {
     let mut cfg = create_test_config();
-    cfg.token_server_secret = Some("123".to_string()); // Odd length
+    cfg.token.server_secret = Some("123".to_string()); // Odd length
 
     let result = generate_server_secret(&cfg);
 
@@ -159,7 +159,7 @@ fn test_generate_server_secret_odd_length_hex() {
 #[test]
 fn test_generate_server_secret_with_spaces() {
     let mut cfg = create_test_config();
-    cfg.token_server_secret = Some("01 23 45 67".to_string());
+    cfg.token.server_secret = Some("01 23 45 67".to_string());
 
     let result = generate_server_secret(&cfg);
 
@@ -200,7 +200,7 @@ fn test_create_token_manager_with_default_issuer() {
 #[test]
 fn test_create_token_manager_with_custom_issuer() {
     let mut cfg = create_test_config();
-    cfg.token_issuer = Some("custom-issuer".to_string());
+    cfg.token.issuer = Some("custom-issuer".to_string());
 
     let jwt_gen = Arc::new(MockJwtGenerator) as Arc<dyn JwtGenerator>;
     let jwt_ver = Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>;
@@ -223,7 +223,7 @@ fn test_create_token_manager_with_custom_issuer() {
 #[test]
 fn test_create_token_manager_with_custom_refresh_endpoint() {
     let mut cfg = create_test_config();
-    cfg.token_refresh_endpoint = Some("https://custom.example.com/refresh".to_string());
+    cfg.token.refresh_endpoint = Some("https://custom.example.com/refresh".to_string());
 
     let jwt_gen = Arc::new(MockJwtGenerator) as Arc<dyn JwtGenerator>;
     let jwt_ver = Arc::new(MockJwtVerifier) as Arc<dyn JwtVerifier>;
@@ -362,7 +362,7 @@ fn test_hex_secret_generation_and_token_manager_integration() {
     // Test that hex-decoded secret can be used with token manager
     let mut cfg = create_test_config();
     // 64 hex chars = 32 bytes
-    cfg.token_server_secret = Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string());
+    cfg.token.server_secret = Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string());
 
     // Generate secret from hex
     let secret = generate_server_secret(&cfg).unwrap();
@@ -458,8 +458,11 @@ impl JwtVerifier for MockJwtVerifier {
 /// Helper function to create a minimal valid config
 fn create_test_config() -> SigletConfig {
     SigletConfig {
-        vault_url: Some("https://vault.example.com".to_string()),
-        vault_token: Some("test-token".to_string()),
+        vault: VaultConfig {
+            url: Some("https://vault.example.com".to_string()),
+            token: Some("test-token".to_string()),
+            ..Default::default()
+        },
         ..Default::default()
     }
 }

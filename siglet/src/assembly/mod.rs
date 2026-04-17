@@ -10,7 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::config::{SigletConfig, StorageBackend, TransferType};
+use crate::config::{SigletConfig, StorageBackend, TokenConfig, TransferType, VaultConfig};
 use crate::error::SigletError;
 use crate::handler::refresh::TokenRefreshHandler;
 use crate::handler::{SigletDataFlowHandler, TokenApiHandler};
@@ -93,8 +93,8 @@ pub struct SigletRuntime<C: TransactionalContext> {
 
 /// Assembles the complete Siglet runtime using the in-memory storage backend.
 pub async fn assemble_memory(cfg: &SigletConfig) -> Result<SigletRuntime<MemoryContext>, SigletError> {
-    let vault_client: Arc<dyn VaultSigningClient> = create_vault_client(cfg).await?;
-    let (jwt_generator, jwt_verifier) = create_jwt_components(vault_client.clone(), cfg.use_http_resolution);
+    let vault_client: Arc<dyn VaultSigningClient> = create_vault_client(&cfg.vault).await?;
+    let (jwt_generator, jwt_verifier) = create_jwt_components(vault_client.clone(), cfg.vault.use_http_resolution);
     let server_secret = generate_server_secret(cfg)?;
 
     let (renewable_token_store, lock_manager) = assemble_memory_stores();
@@ -127,30 +127,25 @@ pub async fn assemble_memory(cfg: &SigletConfig) -> Result<SigletRuntime<MemoryC
 /// Handles both `Postgres` (encrypted token store) and `PostgresVault` (Vault token store)
 /// backends. The data flow SDK always uses `PgContext` backed by the same pool as the stores.
 pub async fn assemble_postgres(cfg: &SigletConfig) -> Result<SigletRuntime<PgContext>, SigletError> {
-    let vault_client = create_vault_client(cfg).await?;
+    let vault_client = create_vault_client(&cfg.vault).await?;
     let signing_client = vault_client.clone() as Arc<dyn VaultSigningClient>;
-    let (jwt_generator, jwt_verifier) = create_jwt_components(signing_client.clone(), cfg.use_http_resolution);
+    let (jwt_generator, jwt_verifier) = create_jwt_components(signing_client.clone(), cfg.vault.use_http_resolution);
     let server_secret = generate_server_secret(cfg)?;
 
-    let url = cfg.postgres_url.as_deref().ok_or_else(|| {
-        SigletError::InvalidConfiguration("postgres_url is required for the Postgres backend".to_string())
-    })?;
+    let url = match &cfg.storage_backend {
+        StorageBackend::Postgres { url, .. } | StorageBackend::PostgresVault { url } => url.as_str(),
+        StorageBackend::Memory => unreachable!("assemble_postgres called with Memory backend"),
+    };
 
     let (pool, (renewable_token_store, lock_manager)) = connect_postgres(url).await?;
 
-    let token_store: Arc<dyn TokenStore> = match cfg.storage_backend {
-        StorageBackend::Postgres => {
-            let password = cfg.postgres_encryption_password.as_deref().ok_or_else(|| {
-                SigletError::InvalidConfiguration(
-                    "postgres_encryption_password is required for the Postgres backend".to_string(),
-                )
-            })?;
-            let salt = cfg.postgres_encryption_salt.as_deref().ok_or_else(|| {
-                SigletError::InvalidConfiguration(
-                    "postgres_encryption_salt is required for the Postgres backend".to_string(),
-                )
-            })?;
-            let enc_key = encryption_key(password, salt)
+    let token_store: Arc<dyn TokenStore> = match &cfg.storage_backend {
+        StorageBackend::Postgres {
+            encryption_password,
+            encryption_salt,
+            ..
+        } => {
+            let enc_key = encryption_key(encryption_password, encryption_salt)
                 .map_err(|e| SigletError::InvalidConfiguration(format!("Invalid encryption key config: {}", e)))?;
             let store = Arc::new(
                 PostgresTokenStore::builder()
@@ -161,7 +156,7 @@ pub async fn assemble_postgres(cfg: &SigletConfig) -> Result<SigletRuntime<PgCon
             store.initialize().await.map_err(|e| SigletError::Token(Box::new(e)))?;
             store as Arc<dyn TokenStore>
         }
-        StorageBackend::PostgresVault => {
+        StorageBackend::PostgresVault { .. } => {
             Arc::new(VaultTokenStore::new(vault_client as Arc<dyn VaultClient>)) as Arc<dyn TokenStore>
         }
         StorageBackend::Memory => unreachable!("assemble_postgres called with Memory backend"),
@@ -389,13 +384,7 @@ fn build_runtime<C: TransactionalContext>(
 ) -> SigletRuntime<C> {
     let refresh_handler = assemble_refresh_api(token_manager.clone());
     let client = Client::new();
-    let token_api_handler = assemble_token_api(
-        token_store,
-        lock_manager,
-        vault_client,
-        token_manager,
-        client,
-    );
+    let token_api_handler = assemble_token_api(token_store, lock_manager, vault_client, token_manager, client);
     SigletRuntime {
         sdk,
         refresh_handler,
@@ -449,7 +438,7 @@ fn create_jwt_components(
 /// If no secret is provided in config, generates a random 256-bit (32 byte) secret.
 /// This is acceptable for development/testing but NOT recommended for production.
 fn generate_server_secret(cfg: &SigletConfig) -> Result<ValidatedServerSecret, SigletError> {
-    let bytes = cfg.token_server_secret.as_ref().map_or_else(
+    let bytes = cfg.token.server_secret.as_ref().map_or_else(
         || {
             let mut secret = vec![0u8; RANDOM_SECRET_SIZE_BYTES];
             thread_rng().fill(&mut secret[..]);
@@ -477,11 +466,13 @@ fn create_token_manager(
     issuer_id: &str,
 ) -> Arc<dyn TokenManager> {
     let issuer = cfg
-        .token_issuer
+        .token
+        .issuer
         .clone()
         .unwrap_or_else(|| DEFAULT_TOKEN_ISSUER.to_string());
     let refresh_endpoint = cfg
-        .token_refresh_endpoint
+        .token
+        .refresh_endpoint
         .clone()
         .unwrap_or_else(|| format!("http://{}:{}{}", cfg.bind, cfg.refresh_api_port, TOKEN_REFRESH_PATH));
 
@@ -524,13 +515,13 @@ fn create_siglet_handler<Tx: Send + 'static>(
 }
 
 /// Creates and initializes a Vault client for JWT signing.
-async fn create_vault_client(cfg: &SigletConfig) -> Result<Arc<HashicorpVaultClient>, SigletError> {
-    let vault_url = cfg
-        .vault_url
+async fn create_vault_client(vault: &VaultConfig) -> Result<Arc<HashicorpVaultClient>, SigletError> {
+    let vault_url = vault
+        .url
         .as_ref()
         .ok_or_else(|| SigletError::InvalidConfiguration("vault_url is required".to_string()))?;
 
-    let token_file = match (&cfg.vault_token_file, &cfg.vault_token) {
+    let token_file = match (&vault.token_file, &vault.token) {
         (Some(token_file_path), _) => std::path::PathBuf::from(token_file_path),
         (None, Some(vault_token)) => {
             let token_file = std::env::temp_dir().join(VAULT_TOKEN_TEMP_FILE);
@@ -549,7 +540,7 @@ async fn create_vault_client(cfg: &SigletConfig) -> Result<Arc<HashicorpVaultCli
         .auth_config(VaultAuthConfig::KubernetesServiceAccount {
             token_file_path: token_file,
         })
-        .signing_key_name(cfg.vault_signing_key_name.clone())
+        .signing_key_name(vault.signing_key_name.clone())
         .build();
 
     let mut vault_client = HashicorpVaultClient::new(vault_config).map_err(|e| SigletError::Vault(Box::new(e)))?;
