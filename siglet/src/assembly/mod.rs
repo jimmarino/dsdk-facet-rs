@@ -190,7 +190,7 @@ pub async fn assemble_postgres_sdk(
     token_store: Arc<dyn TokenStore>,
     token_manager: Arc<dyn TokenManager>,
 ) -> Result<DataPlaneSdk<PgContext>, SigletError> {
-    let ctx = PgContext::new(pool.clone());
+    let ctx = PgContext::new(pool);
     let repo = PgDataFlowRepo::default();
 
     let mut tx = ctx
@@ -201,12 +201,6 @@ pub async fn assemble_postgres_sdk(
         .await
         .map_err(|e| SigletError::DataPlane(anyhow::anyhow!(e)))?;
     tx.commit()
-        .await
-        .map_err(|e| SigletError::DataPlane(anyhow::anyhow!(e)))?;
-
-    // FIXME DSDK migration is missing 'prepared' from data_flow_state ENUM
-    sqlx::query("ALTER TYPE data_flow_state ADD VALUE IF NOT EXISTS 'prepared'")
-        .execute(&pool)
         .await
         .map_err(|e| SigletError::DataPlane(anyhow::anyhow!(e)))?;
 
