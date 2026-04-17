@@ -36,6 +36,9 @@ pub async fn ensure_siglet_deployed() -> Result<Arc<SigletDeployment>> {
         .get_or_try_init(|| async {
             crate::utils::verify_e2e_setup().await?;
 
+            // PostgreSQL must be running before Siglet starts (PostgresVault backend).
+            crate::fixtures::postgres::ensure_postgres_deployed().await?;
+
             let config_manifest = "manifests/siglet-config.yaml";
             let deployment_manifest = "manifests/siglet-deployment.yaml";
             let service_manifest = "manifests/siglet-service.yaml";

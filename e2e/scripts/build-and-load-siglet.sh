@@ -58,6 +58,12 @@ if kubectl get deployment siglet -n "${E2E_NAMESPACE}" &>/dev/null; then
     "${SCRIPT_DIR}/configure-vault.sh"
     echo ""
 
+    echo "Ensuring PostgreSQL is deployed..."
+    kubectl apply -f "${SCRIPT_DIR}/../manifests/postgres-deployment.yaml"
+    kubectl wait --for=condition=available deployment/postgres \
+        -n "${E2E_NAMESPACE}" --timeout=120s
+    echo ""
+
     echo "Restarting siglet deployment to pick up new image..."
     kubectl rollout restart deployment/siglet -n "${E2E_NAMESPACE}"
 

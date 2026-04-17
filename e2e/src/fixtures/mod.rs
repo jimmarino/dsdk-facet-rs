@@ -13,5 +13,6 @@
 //! Shared test fixtures — cluster state managed once per test process.
 
 pub mod consumer_did;
+pub mod postgres;
 pub mod siglet;
 pub mod vault;
