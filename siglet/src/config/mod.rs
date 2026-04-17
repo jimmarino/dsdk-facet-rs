@@ -58,11 +58,6 @@ pub const ENV_CONFIG_FILE: &str = "SIGLET_CONFIG_FILE";
 pub enum StorageBackend {
     #[default]
     Memory,
-    Postgres {
-        url: String,
-        encryption_password: String,
-        encryption_salt: String,
-    },
     /// Vault for `TokenStore`; Postgres for `RenewableTokenStore` and `LockManager`.
     #[serde(rename = "postgres-vault")]
     PostgresVault { url: String },

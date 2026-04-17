@@ -10,7 +10,7 @@
 //       Metaform Systems, Inc. - initial API and implementation
 //
 
-use crate::config::{SigletConfig, StorageBackend, TokenConfig, TransferType, VaultConfig};
+use crate::config::{SigletConfig, StorageBackend, TransferType, VaultConfig};
 use crate::error::SigletError;
 use crate::handler::refresh::TokenRefreshHandler;
 use crate::handler::{SigletDataFlowHandler, TokenApiHandler};
@@ -29,12 +29,10 @@ use dsdk_facet_core::token::client::{MemoryTokenStore, TokenClientApi, TokenStor
 use dsdk_facet_core::token::manager::{
     JwtTokenManager, MemoryRenewableTokenStore, RenewableTokenStore, TokenManager, ValidatedServerSecret,
 };
-use dsdk_facet_core::util::encryption::encryption_key;
 use dsdk_facet_core::vault::{VaultClient, VaultSigningClient};
 use dsdk_facet_hashicorp_vault::{HashicorpVaultClient, HashicorpVaultConfig, VaultAuthConfig};
 use dsdk_facet_postgres::lock::PostgresLockManager;
 use dsdk_facet_postgres::renewable_token_store::PostgresRenewableTokenStore;
-use dsdk_facet_postgres::token::PostgresTokenStore;
 use rand::Rng;
 use rand::thread_rng;
 use reqwest::Client;
@@ -122,45 +120,21 @@ pub async fn assemble_memory(cfg: &SigletConfig) -> Result<SigletRuntime<MemoryC
     ))
 }
 
-/// Assembles the complete Siglet runtime using a Postgres-backed storage backend.
+/// Assembles the complete Siglet runtime using the `PostgresVault` storage backend.
 ///
-/// Handles both `Postgres` (encrypted token store) and `PostgresVault` (Vault token store)
-/// backends. The data flow SDK always uses `PgContext` backed by the same pool as the stores.
+/// Vault handles `TokenStore`; Postgres handles `RenewableTokenStore` and `LockManager`.
 pub async fn assemble_postgres(cfg: &SigletConfig) -> Result<SigletRuntime<PgContext>, SigletError> {
     let vault_client = create_vault_client(&cfg.vault).await?;
     let signing_client = vault_client.clone() as Arc<dyn VaultSigningClient>;
     let (jwt_generator, jwt_verifier) = create_jwt_components(signing_client.clone(), cfg.vault.use_http_resolution);
     let server_secret = generate_server_secret(cfg)?;
 
-    let url = match &cfg.storage_backend {
-        StorageBackend::Postgres { url, .. } | StorageBackend::PostgresVault { url } => url.as_str(),
-        StorageBackend::Memory => unreachable!("assemble_postgres called with Memory backend"),
+    let StorageBackend::PostgresVault { url } = &cfg.storage_backend else {
+        unreachable!("assemble_postgres called with non-postgres backend");
     };
 
     let (pool, (renewable_token_store, lock_manager)) = connect_postgres(url).await?;
-
-    let token_store: Arc<dyn TokenStore> = match &cfg.storage_backend {
-        StorageBackend::Postgres {
-            encryption_password,
-            encryption_salt,
-            ..
-        } => {
-            let enc_key = encryption_key(encryption_password, encryption_salt)
-                .map_err(|e| SigletError::InvalidConfiguration(format!("Invalid encryption key config: {}", e)))?;
-            let store = Arc::new(
-                PostgresTokenStore::builder()
-                    .pool(pool.clone())
-                    .encryption_key(enc_key)
-                    .build(),
-            );
-            store.initialize().await.map_err(|e| SigletError::Token(Box::new(e)))?;
-            store as Arc<dyn TokenStore>
-        }
-        StorageBackend::PostgresVault { .. } => {
-            Arc::new(VaultTokenStore::new(vault_client as Arc<dyn VaultClient>)) as Arc<dyn TokenStore>
-        }
-        StorageBackend::Memory => unreachable!("assemble_postgres called with Memory backend"),
-    };
+    let token_store: Arc<dyn TokenStore> = Arc::new(VaultTokenStore::new(vault_client as Arc<dyn VaultClient>));
 
     let (vault_resolver, vault_provider_verifier) = create_vault_resolver_components(signing_client.clone()).await?;
     let token_manager = create_token_manager(
@@ -197,31 +171,6 @@ pub fn assemble_memory_stores() -> StoreBundle {
     (renewable_token_store, lock_manager)
 }
 
-/// Assembles Postgres-backed implementations of all stores and the lock manager.
-///
-/// Connects to the database, creates and initializes tables, and returns Arc-wrapped
-/// trait objects. The `encryption_password` and `encryption_salt` are used to derive
-/// the key that encrypts tokens at rest.
-pub async fn assemble_postgres_stores(
-    url: &str,
-    encryption_password: &str,
-    encryption_salt: &str,
-) -> Result<(Arc<dyn TokenStore>, StoreBundle), SigletError> {
-    let (pool, bundle) = connect_postgres(url).await?;
-
-    let enc_key = encryption_key(encryption_password, encryption_salt)
-        .map_err(|e| SigletError::InvalidConfiguration(format!("Invalid encryption key config: {}", e)))?;
-
-    let postgres_token_store = Arc::new(PostgresTokenStore::builder().pool(pool).encryption_key(enc_key).build());
-    postgres_token_store
-        .initialize()
-        .await
-        .map_err(|e| SigletError::Token(Box::new(e)))?;
-    let token_store = postgres_token_store as Arc<dyn TokenStore>;
-
-    Ok((token_store, bundle))
-}
-
 /// Assembles Postgres-backed `RenewableTokenStore` and `LockManager` only.
 ///
 /// Used by the `postgres-vault` backend, where `TokenStore` is handled by Vault and
@@ -241,7 +190,7 @@ pub async fn assemble_postgres_sdk(
     token_store: Arc<dyn TokenStore>,
     token_manager: Arc<dyn TokenManager>,
 ) -> Result<DataPlaneSdk<PgContext>, SigletError> {
-    let ctx = PgContext::new(pool);
+    let ctx = PgContext::new(pool.clone());
     let repo = PgDataFlowRepo::default();
 
     let mut tx = ctx
@@ -252,6 +201,12 @@ pub async fn assemble_postgres_sdk(
         .await
         .map_err(|e| SigletError::DataPlane(anyhow::anyhow!(e)))?;
     tx.commit()
+        .await
+        .map_err(|e| SigletError::DataPlane(anyhow::anyhow!(e)))?;
+
+    // FIXME DSDK migration is missing 'prepared' from data_flow_state ENUM
+    sqlx::query("ALTER TYPE data_flow_state ADD VALUE IF NOT EXISTS 'prepared'")
+        .execute(&pool)
         .await
         .map_err(|e| SigletError::DataPlane(anyhow::anyhow!(e)))?;
 
