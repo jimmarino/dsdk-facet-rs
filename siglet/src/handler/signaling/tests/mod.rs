@@ -12,6 +12,7 @@
 
 use super::SigletDataFlowHandler;
 use crate::config::{TokenSource, TransferType};
+use dataplane_sdk::core::db::memory::MemoryTransaction;
 use dataplane_sdk::core::handler::DataFlowHandler;
 use dataplane_sdk::core::model::data_flow::{DataFlow, DataFlowType};
 use dsdk_facet_core::context::ParticipantContext;
@@ -23,6 +24,9 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Type alias so builder calls in tests don't need per-site turbofish annotations.
+type Handler = SigletDataFlowHandler<MemoryTransaction>;
+
 #[tokio::test]
 async fn test_can_handle_with_http_pull_accepts_http_pull_rejects_http_push() {
     let token_store = Arc::new(MemoryTokenStore::new());
@@ -32,7 +36,7 @@ async fn test_can_handle_with_http_pull_accepts_http_pull_rejects_http_push() {
         "http-pull".to_string(),
         create_transfer_type("http-pull", "HTTP", "https://pull.example.com", TokenSource::Provider),
     );
-    let handler = SigletDataFlowHandler::builder()
+    let handler = Handler::builder()
         .dataplane_id("dataplane-1")
         .token_store(token_store)
         .token_manager(token_manager)
@@ -64,7 +68,7 @@ async fn test_can_handle_with_matching_transfer_type_accepts() {
         create_transfer_type("http-push", "HTTP", "https://push.example.com", TokenSource::Client),
     );
 
-    let handler = SigletDataFlowHandler::builder()
+    let handler = Handler::builder()
         .token_store(token_store)
         .token_manager(token_manager)
         .dataplane_id("dataplane-1")
@@ -92,7 +96,7 @@ async fn test_can_handle_with_non_matching_transfer_type_rejects() {
         create_transfer_type("http-push", "HTTP", "https://push.example.com", TokenSource::Client),
     );
 
-    let handler = SigletDataFlowHandler::builder()
+    let handler = Handler::builder()
         .token_store(token_store)
         .token_manager(token_manager)
         .transfer_type_mappings(mappings)
@@ -116,7 +120,7 @@ async fn test_can_handle_with_single_transfer_type() {
         create_transfer_type("http-pull", "HTTP", "https://pull.example.com", TokenSource::Provider),
     );
 
-    let handler = SigletDataFlowHandler::builder()
+    let handler = Handler::builder()
         .token_store(token_store)
         .token_manager(token_manager)
         .transfer_type_mappings(mappings)
@@ -151,7 +155,7 @@ async fn test_on_start_generates_token_for_provider_token_source() {
         create_transfer_type("http-pull", "HTTP", "https://pull.example.com", TokenSource::Provider),
     );
 
-    let handler = SigletDataFlowHandler::builder()
+    let handler = Handler::builder()
         .token_store(token_store)
         .token_manager(token_manager)
         .transfer_type_mappings(mappings)
@@ -191,7 +195,7 @@ async fn test_on_prepare_generates_token_for_client_token_source() {
         create_transfer_type("http-push", "HTTP", "https://push.example.com", TokenSource::Client),
     );
 
-    let handler = SigletDataFlowHandler::builder()
+    let handler = Handler::builder()
         .token_store(token_store)
         .token_manager(token_manager)
         .transfer_type_mappings(mappings)
@@ -230,7 +234,7 @@ async fn test_on_prepare_skips_token_for_provider_token_source() {
         create_transfer_type("http-pull", "HTTP", "https://pull.example.com", TokenSource::Provider),
     );
 
-    let handler = SigletDataFlowHandler::builder()
+    let handler = Handler::builder()
         .token_store(token_store)
         .token_manager(token_manager)
         .transfer_type_mappings(mappings)
@@ -322,7 +326,7 @@ async fn test_on_terminate_revokes_token_successfully() {
         "http-pull".to_string(),
         create_transfer_type("http-pull", "HTTP", "https://pull.example.com", TokenSource::Provider),
     );
-    let handler = SigletDataFlowHandler::builder()
+    let handler = Handler::builder()
         .token_store(token_store)
         .token_manager(token_manager)
         .dataplane_id("test-dataplane")
@@ -417,7 +421,7 @@ async fn test_on_terminate_ignores_token_not_found_error() {
         "http-pull".to_string(),
         create_transfer_type("http-pull", "HTTP", "https://pull.example.com", TokenSource::Provider),
     );
-    let handler = SigletDataFlowHandler::builder()
+    let handler = Handler::builder()
         .token_store(token_store.clone())
         .token_manager(token_manager)
         .dataplane_id("test-dataplane")
@@ -500,7 +504,7 @@ async fn test_on_terminate_propagates_other_errors() {
         "http-pull".to_string(),
         create_transfer_type("http-pull", "HTTP", "https://pull.example.com", TokenSource::Provider),
     );
-    let handler = SigletDataFlowHandler::builder()
+    let handler = Handler::builder()
         .token_store(token_store)
         .token_manager(token_manager)
         .dataplane_id("test-dataplane")
@@ -598,56 +602,56 @@ fn create_transfer_type(
 #[test]
 fn test_value_to_claim_string_with_null() {
     let value = serde_json::json!(null);
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     assert_eq!(result, "");
 }
 
 #[test]
 fn test_value_to_claim_string_with_boolean_true() {
     let value = serde_json::json!(true);
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     assert_eq!(result, "true");
 }
 
 #[test]
 fn test_value_to_claim_string_with_boolean_false() {
     let value = serde_json::json!(false);
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     assert_eq!(result, "false");
 }
 
 #[test]
 fn test_value_to_claim_string_with_integer() {
     let value = serde_json::json!(42);
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     assert_eq!(result, "42");
 }
 
 #[test]
 fn test_value_to_claim_string_with_negative_integer() {
     let value = serde_json::json!(-123);
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     assert_eq!(result, "-123");
 }
 
 #[test]
 fn test_value_to_claim_string_with_float() {
     let value = serde_json::json!(2.14);
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     assert_eq!(result, "2.14");
 }
 
 #[test]
 fn test_value_to_claim_string_with_string() {
     let value = serde_json::json!("hello world");
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     assert_eq!(result, "hello world");
 }
 
 #[test]
 fn test_value_to_claim_string_with_string_containing_quotes() {
     let value = serde_json::json!("hello \"world\"");
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     // Raw string, not JSON-encoded
     assert_eq!(result, "hello \"world\"");
 }
@@ -655,7 +659,7 @@ fn test_value_to_claim_string_with_string_containing_quotes() {
 #[test]
 fn test_value_to_claim_string_with_array() {
     let value = serde_json::json!(["item1", "item2", "item3"]);
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     // Should be JSON-serialized
     assert_eq!(result, r#"["item1","item2","item3"]"#);
 }
@@ -663,7 +667,7 @@ fn test_value_to_claim_string_with_array() {
 #[test]
 fn test_value_to_claim_string_with_object() {
     let value = serde_json::json!({"key1": "value1", "key2": "value2"});
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     // Should be JSON-serialized (note: order may vary, so we parse and compare)
     let parsed: Value = serde_json::from_str(&result).expect("Should be valid JSON");
     assert_eq!(parsed["key1"], "value1");
@@ -679,7 +683,7 @@ fn test_value_to_claim_string_with_nested_object() {
         },
         "active": true
     });
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     // Should be JSON-serialized
     let parsed: Value = serde_json::from_str(&result).expect("Should be valid JSON");
     assert_eq!(parsed["user"]["name"], "Alice");
@@ -690,21 +694,21 @@ fn test_value_to_claim_string_with_nested_object() {
 #[test]
 fn test_value_to_claim_string_with_empty_string() {
     let value = serde_json::json!("");
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     assert_eq!(result, "");
 }
 
 #[test]
 fn test_value_to_claim_string_with_empty_array() {
     let value = serde_json::json!([]);
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     assert_eq!(result, "[]");
 }
 
 #[test]
 fn test_value_to_claim_string_with_empty_object() {
     let value = serde_json::json!({});
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     assert_eq!(result, "{}");
 }
 
@@ -712,7 +716,7 @@ fn test_value_to_claim_string_with_empty_object() {
 fn test_value_to_claim_string_with_json_encoded_string() {
     // A string value that contains a JSON-encoded string
     let value = Value::String("\"claimvalue1\"".to_string());
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     // Should unwrap the JSON encoding
     assert_eq!(result, "claimvalue1");
 }
@@ -721,7 +725,7 @@ fn test_value_to_claim_string_with_json_encoded_string() {
 fn test_value_to_claim_string_with_double_json_encoded_string() {
     // A string value that contains a double JSON-encoded string
     let value = Value::String("\"\\\"innervalue\\\"\"".to_string());
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     // Should recursively unwrap
     assert_eq!(result, "innervalue");
 }
@@ -730,7 +734,7 @@ fn test_value_to_claim_string_with_double_json_encoded_string() {
 fn test_value_to_claim_string_with_json_encoded_number() {
     // A string value that contains a JSON-encoded number
     let value = Value::String("42".to_string());
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     // Should unwrap to the number as a string
     assert_eq!(result, "42");
 }
@@ -739,7 +743,7 @@ fn test_value_to_claim_string_with_json_encoded_number() {
 fn test_value_to_claim_string_with_json_encoded_bool() {
     // A string value that contains a JSON-encoded boolean
     let value = Value::String("true".to_string());
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     // Should unwrap to the boolean as a string
     assert_eq!(result, "true");
 }
@@ -748,7 +752,7 @@ fn test_value_to_claim_string_with_json_encoded_bool() {
 fn test_value_to_claim_string_with_json_encoded_null() {
     // A string value that contains a JSON-encoded null
     let value = Value::String("null".to_string());
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     // Should unwrap to empty string
     assert_eq!(result, "");
 }
@@ -757,7 +761,7 @@ fn test_value_to_claim_string_with_json_encoded_null() {
 fn test_value_to_claim_string_with_json_encoded_array() {
     // A string value that contains a JSON-encoded array
     let value = Value::String("[\"item1\",\"item2\"]".to_string());
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     // Should unwrap and re-serialize as JSON
     assert_eq!(result, "[\"item1\",\"item2\"]");
 }
@@ -766,7 +770,7 @@ fn test_value_to_claim_string_with_json_encoded_array() {
 fn test_value_to_claim_string_with_json_encoded_object() {
     // A string value that contains a JSON-encoded object
     let value = Value::String("{\"key\":\"value\"}".to_string());
-    let result = SigletDataFlowHandler::value_to_claim_string(&value);
+    let result = Handler::value_to_claim_string(&value);
     // Should unwrap and re-serialize as JSON
     assert_eq!(result, "{\"key\":\"value\"}");
 }

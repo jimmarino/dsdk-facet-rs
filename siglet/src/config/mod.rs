@@ -54,11 +54,13 @@ pub const ENV_CONFIG_FILE: &str = "SIGLET_CONFIG_FILE";
 // ============================================================================
 
 #[derive(Deserialize, Clone, Debug, Default)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase", tag = "type")]
 pub enum StorageBackend {
     #[default]
     Memory,
-    Postgres,
+    /// Vault for `TokenStore`; Postgres for `RenewableTokenStore` and `LockManager`.
+    #[serde(rename = "postgres-vault")]
+    PostgresVault { url: String },
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
@@ -90,6 +92,38 @@ pub struct EndpointMapping {
 
 #[derive(Deserialize, Clone, Debug)]
 #[serde(default)]
+pub struct VaultConfig {
+    pub url: Option<String>,
+    pub token: Option<String>,
+    pub token_file: Option<String>,
+    #[serde(default = "default_vault_signing_key_name")]
+    pub signing_key_name: String,
+    #[serde(default)]
+    pub use_http_resolution: bool,
+}
+
+impl Default for VaultConfig {
+    fn default() -> Self {
+        Self {
+            url: None,
+            token: None,
+            token_file: None,
+            signing_key_name: DEFAULT_VAULT_SIGNING_KEY_NAME.to_string(),
+            use_http_resolution: false,
+        }
+    }
+}
+
+#[derive(Deserialize, Clone, Debug, Default)]
+#[serde(default)]
+pub struct TokenConfig {
+    pub issuer: Option<String>,
+    pub refresh_endpoint: Option<String>,
+    pub server_secret: Option<String>,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+#[serde(default)]
 pub struct SigletConfig {
     #[serde(default = "default_siglet_api_port")]
     pub siglet_api_port: u16,
@@ -103,24 +137,10 @@ pub struct SigletConfig {
     pub storage_backend: StorageBackend,
     #[serde(default)]
     pub transfer_types: Vec<TransferType>,
-
     #[serde(default)]
-    pub use_http_resolution: bool,
-
-    // Vault configuration
-    pub vault_url: Option<String>,
-    pub vault_token: Option<String>,
-    pub vault_token_file: Option<String>,
-    #[serde(default = "default_vault_signing_key_name")]
-    pub vault_signing_key_name: String,
-    pub token_issuer: Option<String>,
-    pub token_refresh_endpoint: Option<String>,
-    pub token_server_secret: Option<String>,
-
-    // Postgres backend configuration
-    pub postgres_url: Option<String>,
-    pub postgres_encryption_password: Option<String>,
-    pub postgres_encryption_salt: Option<String>,
+    pub vault: VaultConfig,
+    #[serde(default)]
+    pub token: TokenConfig,
 }
 
 impl Default for SigletConfig {
@@ -132,17 +152,8 @@ impl Default for SigletConfig {
             bind: DEFAULT_BIND_ADDRESS,
             storage_backend: StorageBackend::Memory,
             transfer_types: Vec::new(),
-            use_http_resolution: false,
-            vault_url: None,
-            vault_token: None,
-            vault_token_file: None,
-            vault_signing_key_name: DEFAULT_VAULT_SIGNING_KEY_NAME.to_string(),
-            token_issuer: None,
-            token_refresh_endpoint: None,
-            token_server_secret: None,
-            postgres_url: None,
-            postgres_encryption_password: None,
-            postgres_encryption_salt: None,
+            vault: VaultConfig::default(),
+            token: TokenConfig::default(),
         }
     }
 }
@@ -156,24 +167,24 @@ impl SigletConfig {
         let mut errors = Vec::new();
 
         // Validate Vault URL is provided
-        if self.vault_url.is_none() {
+        if self.vault.url.is_none() {
             errors.push("vault_url is required".to_string());
         }
 
         // Validate Vault URL format
-        if let Some(url) = &self.vault_url
+        if let Some(url) = &self.vault.url
             && url.parse::<reqwest::Url>().is_err()
         {
             errors.push(format!("vault_url is not a valid URL: '{}'", url));
         }
 
         // Validate Vault authentication is provided
-        if self.vault_token.is_none() && self.vault_token_file.is_none() {
+        if self.vault.token.is_none() && self.vault.token_file.is_none() {
             errors.push("Either vault_token or vault_token_file is required".to_string());
         }
 
         // Validate server secret format (if provided)
-        if let Some(secret_hex) = &self.token_server_secret {
+        if let Some(secret_hex) = &self.token.server_secret {
             if secret_hex.is_empty() {
                 errors.push("token_server_secret cannot be empty".to_string());
             } else if let Ok(decoded) = hex::decode(secret_hex) {
@@ -272,7 +283,7 @@ impl SigletConfig {
         }
 
         // Validate vault signing key name
-        if self.vault_signing_key_name.is_empty() {
+        if self.vault.signing_key_name.is_empty() {
             errors.push("vault_signing_key_name cannot be empty".to_string());
         }
 
@@ -317,7 +328,7 @@ pub fn load_config() -> anyhow::Result<SigletConfig> {
     }
 
     config_builder
-        .add_source(Environment::with_prefix("SIGLET"))
+        .add_source(Environment::with_prefix("SIGLET").separator("__"))
         .build()?
         .try_deserialize()
         .map_err(Into::into)

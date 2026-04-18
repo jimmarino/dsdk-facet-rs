@@ -98,6 +98,14 @@ echo "Configuring Vault..."
 echo "Vault configured"
 echo ""
 
+# Deploy PostgreSQL
+echo "Deploying PostgreSQL..."
+kubectl apply -f "${MANIFESTS_DIR}/postgres-deployment.yaml"
+echo "Waiting for PostgreSQL to be ready..."
+kubectl wait --for=condition=available deployment/postgres -n "${NAMESPACE}" --timeout=120s
+echo "PostgreSQL deployed and ready"
+echo ""
+
 # Deploy consumer DID server
 "${SCRIPT_DIR}/setup-consumer-did.sh"
 echo ""

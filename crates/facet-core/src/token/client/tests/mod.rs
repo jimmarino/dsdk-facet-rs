@@ -24,3 +24,6 @@ mod mem;
 
 #[cfg(test)]
 mod oauth;
+
+#[cfg(test)]
+mod vault;

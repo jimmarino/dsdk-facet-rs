@@ -11,8 +11,8 @@
 //
 
 use siglet::{
-    assembly::assemble,
-    config::{SigletConfig, load_config},
+    assembly::{assemble_memory, assemble_postgres},
+    config::{SigletConfig, StorageBackend, load_config},
     error::SigletError,
     server::run_server,
 };
@@ -46,15 +46,32 @@ async fn main() {
 }
 
 async fn run(cfg: SigletConfig) -> Result<(), SigletError> {
-    let runtime = assemble(&cfg).await?;
-    run_server(
-        cfg.bind,
-        cfg.signaling_port,
-        cfg.siglet_api_port,
-        cfg.refresh_api_port,
-        runtime.sdk,
-        runtime.token_api_handler,
-        runtime.refresh_handler,
-    )
-    .await
+    match &cfg.storage_backend {
+        StorageBackend::Memory => {
+            let runtime = assemble_memory(&cfg).await?;
+            run_server(
+                cfg.bind,
+                cfg.signaling_port,
+                cfg.siglet_api_port,
+                cfg.refresh_api_port,
+                runtime.sdk,
+                runtime.token_api_handler,
+                runtime.refresh_handler,
+            )
+            .await
+        }
+        StorageBackend::PostgresVault { .. } => {
+            let runtime = assemble_postgres(&cfg).await?;
+            run_server(
+                cfg.bind,
+                cfg.signaling_port,
+                cfg.siglet_api_port,
+                cfg.refresh_api_port,
+                runtime.sdk,
+                runtime.token_api_handler,
+                runtime.refresh_handler,
+            )
+            .await
+        }
+    }
 }

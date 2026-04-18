@@ -6,6 +6,10 @@ metadata:
   namespace: vault-e2e-test
 data:
   siglet.toml: |
+    [storage_backend]
+    type = "postgres-vault"
+    url = "postgresql://siglet:siglet@postgres:5432/siglet"
+
     [[transfer_types]]
     transfer_type = "http-pull"
     endpoint_type = "HTTP"

@@ -36,6 +36,9 @@ pub async fn ensure_siglet_deployed() -> Result<Arc<SigletDeployment>> {
         .get_or_try_init(|| async {
             crate::utils::verify_e2e_setup().await?;
 
+            // PostgreSQL must be running before Siglet starts (PostgresVault backend).
+            crate::fixtures::postgres::ensure_postgres_deployed().await?;
+
             let config_manifest = "manifests/siglet-config.yaml";
             let deployment_manifest = "manifests/siglet-deployment.yaml";
             let service_manifest = "manifests/siglet-service.yaml";
@@ -215,6 +218,7 @@ async fn setup_refresh_port_forward() -> Result<(u16, std::process::Child)> {
         .spawn()
         .context("Failed to start kubectl port-forward for refresh API")?;
 
+    let client = reqwest::Client::new();
     let start = std::time::Instant::now();
     let timeout_secs = 30;
 
@@ -238,7 +242,10 @@ async fn setup_refresh_port_forward() -> Result<(u16, std::process::Child)> {
 
         // Probe with a GET to /token/refresh — expect 405 (Method Not Allowed) because
         // the endpoint only accepts POST; any HTTP response means the forward is up.
-        if reqwest::get(format!("http://localhost:{}/token/refresh", local_port))
+        if client
+            .get(format!("http://localhost:{}/token/refresh", local_port))
+            .timeout(tokio::time::Duration::from_secs(1))
+            .send()
             .await
             .is_ok()
         {

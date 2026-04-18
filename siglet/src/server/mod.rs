@@ -17,7 +17,7 @@ use axum::{
     response::{IntoResponse, Json},
     routing::get,
 };
-use dataplane_sdk::{core::db::memory::MemoryContext, sdk::DataPlaneSdk};
+use dataplane_sdk::{core::db::tx::TransactionalContext, sdk::DataPlaneSdk};
 use dataplane_sdk_axum::router::participants_router as signaling_router;
 use serde_json::json;
 use signaling::auth::AuthLayer;
@@ -71,15 +71,19 @@ const STATUS_HEALTHY: &str = "healthy";
 /// - Proper error propagation from spawned tasks
 /// - Graceful shutdown coordination via CancellationToken
 /// - Fail-fast behavior: if one server fails, all are cancelled
-pub async fn run_server(
+pub async fn run_server<C>(
     bind: IpAddr,
     signaling_port: u16,
     siglet_api_port: u16,
     refresh_api_port: u16,
-    sdk: DataPlaneSdk<MemoryContext>,
+    sdk: DataPlaneSdk<C>,
     token_api_handler: TokenApiHandler,
     refresh_handler: TokenRefreshHandler,
-) -> Result<(), SigletError> {
+) -> Result<(), SigletError>
+where
+    C: TransactionalContext + 'static,
+    C::Transaction: Send,
+{
     let mut join_set = JoinSet::new();
     let cancel_token = CancellationToken::new();
 
@@ -175,12 +179,16 @@ fn handle_task_result(
 /// This function binds to the specified address and runs until either:
 /// - The cancellation token is triggered
 /// - An error occurs
-async fn run_signaling_api(
+async fn run_signaling_api<C>(
     bind: IpAddr,
     port: u16,
-    sdk: DataPlaneSdk<MemoryContext>,
+    sdk: DataPlaneSdk<C>,
     cancel_token: CancellationToken,
-) -> Result<(), SigletError> {
+) -> Result<(), SigletError>
+where
+    C: TransactionalContext + 'static,
+    C::Transaction: Send,
+{
     let addr: SocketAddr = format!("{}:{}", bind, port)
         .parse()
         .map_err(|e: std::net::AddrParseError| SigletError::Network(Box::new(e)))?;
