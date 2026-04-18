@@ -191,7 +191,7 @@ pub async fn assemble_postgres_sdk(
     token_manager: Arc<dyn TokenManager>,
 ) -> Result<DataPlaneSdk<PgContext>, SigletError> {
     let ctx = PgContext::new(pool);
-    let repo = PgDataFlowRepo::default();
+    let repo = PgDataFlowRepo;
 
     let mut tx = ctx
         .begin()
