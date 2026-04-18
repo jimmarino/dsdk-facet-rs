@@ -35,8 +35,6 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 dsdk-facet-test-utils = { path = "../facet-test-utils" }
-dsdk-facet-testcontainers = { path = "../facet-testcontainers" }
-dsdk-facet-postgres = { path = "../facet-postgres" }
 tokio = { workspace = true }
 reqwest = { workspace = true }
 wiremock = { workspace = true }

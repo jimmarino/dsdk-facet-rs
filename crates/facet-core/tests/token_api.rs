@@ -16,41 +16,23 @@ use dsdk_facet_core::jwt::test_fixtures::{
     StaticSigningKeyResolver, StaticVerificationKeyResolver, generate_ed25519_keypair_pem,
 };
 use dsdk_facet_core::jwt::{JwtVerifier, LocalJwtGenerator, LocalJwtVerifier};
+use dsdk_facet_core::lock::MemoryLockManager;
 use dsdk_facet_core::token::client::oauth::OAuth2TokenClient;
-use dsdk_facet_core::token::client::{TokenClientApi, TokenData, TokenStore};
+use dsdk_facet_core::token::client::{MemoryTokenStore, TokenClientApi, TokenData, TokenStore};
 use dsdk_facet_core::util::clock::default_clock;
-use dsdk_facet_core::util::encryption::encryption_key;
-use dsdk_facet_postgres::lock::PostgresLockManager;
-use dsdk_facet_postgres::token::PostgresTokenStore;
-use dsdk_facet_testcontainers::postgres::setup_postgres_container;
-use once_cell::sync::Lazy;
-use sodiumoxide::crypto::secretbox;
 use std::sync::Arc;
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Match, Mock, MockServer, Request, ResponseTemplate};
 
 const DID: &str = "did:test.com";
-const TEST_SALT: &str = "6b9768804c86626227e61acd9e06f8ff";
-
-static TEST_KEY: Lazy<secretbox::Key> =
-    Lazy::new(|| encryption_key("test_password", TEST_SALT).expect("Failed to derive test key"));
 
 #[tokio::test]
 async fn test_api_end_to_end_with_refresh() {
     let keypair = generate_ed25519_keypair_pem().expect("Failed to generate keypair");
     let private_key = keypair.private_key.clone();
 
-    let (pool, _container) = setup_postgres_container().await;
-    let lock_manager = Arc::new(PostgresLockManager::builder().pool(pool.clone()).build());
-    lock_manager.initialize().await.unwrap();
-
-    let token_store = Arc::new(
-        PostgresTokenStore::builder()
-            .pool(pool)
-            .encryption_key(TEST_KEY.clone())
-            .build(),
-    );
-    token_store.initialize().await.unwrap();
+    let lock_manager = Arc::new(MemoryLockManager::new());
+    let token_store = Arc::new(MemoryTokenStore::new());
 
     let signing_key_resolver = Arc::new(
         StaticSigningKeyResolver::builder()

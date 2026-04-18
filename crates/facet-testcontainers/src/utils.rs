@@ -145,12 +145,3 @@ fn is_process_running(pid: u32) -> bool {
         }
     }
 }
-
-/// Checks if a process with the given PID is currently running
-#[cfg(not(unix))]
-fn is_process_running(_pid: u32) -> bool {
-    // On non-Unix systems, conservatively assume the process is still running
-    // This means we won't clean up networks on Windows, but that's safer than
-    // potentially deleting networks from running processes
-    true
-}
