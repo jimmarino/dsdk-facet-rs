@@ -1843,10 +1843,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dsdk-facet-token-provider"
-version = "0.0.1"
-
-[[package]]
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5125,9 +5121,7 @@ dependencies = [
  "dsdk-facet-core",
  "dsdk-facet-hashicorp-vault",
  "dsdk-facet-postgres",
- "dsdk-facet-proxy",
  "dsdk-facet-testcontainers",
- "dsdk-facet-token-provider",
  "hex",
  "rand 0.8.5",
  "reqwest",
